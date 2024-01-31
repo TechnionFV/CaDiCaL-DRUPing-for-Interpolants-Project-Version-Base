@@ -1,0 +1,218 @@
+#ifndef _drupper_hpp_INCLUDED
+#define _drupper_hpp_INCLUDED
+
+#include <unordered_map>
+
+namespace CaDiCaL {
+
+/*-----------------------------------------------------------------------------------
+
+The code implements the algorithm introduced in "DRUPing For Interpolant", a
+paper by Arie Gurfinkel and Yakir Vizel. Drupper allows DRUP-based proof
+trimming, validation, interpolants and core extraction enabled by
+'opts.drup'.
+
+Limitations:
+  - Allowing other proof observers/checkers in parallel:
+    During validation/trimming procedure, drupper can delete or revive
+clauses that other Internal::Proof observers aren't aware of. As a result,
+enabling such observers and checkers in parallel might trigger errors.
+
+  - Chronological backtracking enabled by 'opts.chrono':
+    The combination of chronological backtracking with the algorithm is
+challenging since invariants classically considered crucial to CDCL cease to
+hold. In its current implementation, the algorithm relies on the level order
+invariant which ensures the literals are ordered on the assignment trail in
+ascending order with respect to their decision level. This invariant is
+violated. In the interest of compatibility with chronological backtracking,
+adjustments to the implementation will be considered in the future.
+
+  - Compatible [in/pre]processing techniques:
+    1) probing / advanced probing / lookahead: not resolution based.
+    2) conditioning / blocking: is this some sort of of BCE?
+    3) compacting: variables are revived in the process.
+    4) vivication: vivified (reason) clause must maintain first literal in
+its place.
+
+  - Avoid propagating binary clauses as soon as they are marked as garbage.
+
+-----------------------------------------------------------------------------------*/
+
+enum DCVariant { CLAUSE = 0, LITERALS = 1 };
+
+class DrupperClause {
+  bool variant : 1;
+
+public:
+  bool deleted : 1;
+  unsigned revive_at : 30;
+
+private:
+  union {
+    Clause *counterpart;
+    vector<int> *literals;
+  };
+
+public:
+  DrupperClause (vector<int> c, bool deletion = false);
+  DrupperClause (Clause *c, bool deletion = false);
+  ~DrupperClause ();
+  DCVariant variant_type () const;
+  void destroy_variant ();
+  void set_variant (Clause *);
+  void set_variant (const vector<int> &);
+  Clause *flip_variant ();
+  Clause *clause ();
+  vector<int> &lits ();
+  const vector<int> &lits () const;
+};
+
+struct lock_scope {
+  bool &key;
+  lock_scope (bool &key_) : key (key_) {
+    assert (!key_);
+    key = true;
+  };
+  ~lock_scope () { key = false; }
+};
+
+template <class T> struct save_scope {
+  T &key;
+  T initial;
+  save_scope (T &key_) : key (key_), initial (key_){};
+  save_scope (T &key_, T val_within_scope) : key (key_), initial (key_) {
+    key = val_within_scope;
+  };
+  ~save_scope () { key = initial; };
+};
+
+class Drupper {
+
+  Internal *internal;
+
+  // stack of clausal proof
+  //
+  vector<DrupperClause *> proof;
+
+  Clause *new_garbage_redundant_clause (const vector<int> &);
+  Clause *new_unit_clause (const int, bool);
+  vector<Clause *> unit_clauses;
+
+  Clause *failed_constraint, *final_conflict;
+  bool isolated, validating, overconstrained;
+  File *file;
+
+  bool trivially_satisfied (const vector<int> &);
+  void append_lemma (DrupperClause *);
+  void append_failed (const vector<int> &);
+  void revive_clause (const int);
+  void stagnate_clause (const int);
+  void reactivate_fixed (int);
+
+  void shrink_internal_trail (const unsigned);
+  void clean_conflict ();
+
+  void undo_trail_literal (const int);
+  void undo_trail_core (Clause *, unsigned &);
+  bool is_on_trail (Clause *) const;
+
+  void mark_core (int);
+  void mark_core (Clause *);
+  void mark_conflict_lit (const int);
+  void mark_conflict ();
+  void mark_failing (const int);
+
+  void assume_negation (const Clause *);
+  bool propagate_conflict ();
+  void conflict_analysis_core ();
+
+  void mark_core_trail_antecedents ();
+  void unmark_core ();
+  void restore_trail ();
+  void reallocate (const unsigned);
+  void reconstruct (unsigned);
+
+  void check_environment () const;
+  void dump_clauses (bool active = false) const;
+  void dump_clause (const Clause *) const;
+  void dump_clause (const DrupperClause *) const;
+  void dump_clause (const vector<int> &) const;
+  void dump_proof () const;
+  void dump_trail () const;
+
+  bool core_is_unsat () const;
+  void dump_core () const;
+
+  friend class DrupperClause;
+
+  struct {
+
+    int64_t trims = 0;   // number of trim calls
+    int64_t derived = 0; // number of added derived clauses
+    int64_t deleted = 0; // number of deleted clauses
+    int64_t revived = 0; // number of revived clauses
+    int64_t units = 0;   // number of unit clauses allcoated
+
+    typedef struct {
+      int64_t clauses = 0, variables = 0;
+    } core_stats;
+
+    core_stats core;               // core statistics in current trim
+    vector<core_stats> core_phase; // core statistics per trim phase
+
+  } stats;
+
+  bool setup_internal_options ();
+
+  struct Settings {
+
+    bool core_units : 1;  // mark trail reason units as core
+    bool check_core : 1;  // assert the set of core literals is unsat (under
+                          // debug mode only)
+    bool prefer_core : 1; // sorts watches to propagate core literals first
+                          // during trim
+    bool reconstruct : 1; // reconstruct the solver state after trim
+
+    Settings () { // default
+      core_units = false;
+      check_core = true;
+      prefer_core = false;
+      reconstruct = true;
+    }
+
+  } settings;
+
+  void save_core_phase_stats () {
+    stats.core_phase.push_back ({stats.core.clauses, stats.core.variables});
+  }
+
+public:
+  Drupper (Internal *, File *f = 0);
+  ~Drupper ();
+
+  void set (const char *, bool val = true);
+
+  void add_derived_clause (Clause *);
+  void add_derived_unit_clause (const int, bool original = false);
+  void add_derived_empty_clause ();
+  void add_falsified_original_clause (const vector<int> &, bool);
+  void add_failing_assumption (const vector<int> &);
+  void add_updated_clause (Clause *);
+
+  void delete_clause (const vector<int> &, bool original = false);
+  void delete_clause (Clause *);
+
+  void deallocate_clause (Clause *);
+
+  void update_moved_counterparts ();
+
+  void trim ();
+
+  void prefer_core_watches (const int);
+
+  void print_stats ();
+};
+
+} // namespace CaDiCaL
+
+#endif

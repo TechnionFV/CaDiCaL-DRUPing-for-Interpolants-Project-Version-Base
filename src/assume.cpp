@@ -86,6 +86,8 @@ void Internal::failing () {
     if (failed_unit) {
       assert (failed == failed_unit);
       LOG ("root-level falsified assumption %d", failed);
+      if (drupper)
+        drupper->add_failing_assumption({failed});
       goto DONE;
     }
 
@@ -97,6 +99,8 @@ void Internal::failing () {
       const unsigned bit = bign (-failed);
       assert (!(f.failed & bit));
       f.failed |= bit;
+      if (drupper)
+        drupper->add_failing_assumption({failed});
       goto DONE;
     }
 
@@ -183,6 +187,8 @@ void Internal::failing () {
         proof->add_derived_clause (clause);
         proof->delete_clause (clause);
       }
+      if (drupper)
+          drupper->add_failing_assumption (clause);
     } else {
       for (auto lit : constraint) {
         clause.push_back (-lit);
@@ -191,6 +197,8 @@ void Internal::failing () {
           proof->add_derived_clause (clause);
           proof->delete_clause (clause);
         }
+        if (drupper)
+          drupper->add_failing_assumption (clause);
         clause.pop_back ();
       }
     }

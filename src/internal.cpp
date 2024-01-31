@@ -13,7 +13,7 @@ Internal::Internal ()
       score_inc (1.0), scores (this), conflict (0), ignore (0),
       propagated (0), propagated2 (0), propergated (0), best_assigned (0),
       target_assigned (0), no_conflict_until (0), unsat_constraint (false),
-      marked_failed (true), proof (0), checker (0), tracer (0), opts (this),
+      marked_failed (true), proof (0), drupper (0), checker (0), tracer (0), opts (this),
 #ifndef QUIET
       profiles (this), force_phase_messages (false),
 #endif
@@ -24,6 +24,8 @@ Internal::Internal ()
 }
 
 Internal::~Internal () {
+  if (drupper)
+    delete drupper, drupper = 0;
   for (const auto &c : clauses)
     delete_clause (c);
   if (proof)
@@ -225,6 +227,9 @@ int Internal::cdcl_loop_with_inprocessing () {
   }
 
   STOP (search);
+
+  if (drupper && res == 20)
+    drupper->trim ();
 
   return res;
 }
@@ -744,6 +749,8 @@ void Internal::print_statistics () {
   stats.print (this);
   if (checker)
     checker->print_stats ();
+  if (drupper)
+    drupper->print_stats ();
 }
 
 /*------------------------------------------------------------------------*/

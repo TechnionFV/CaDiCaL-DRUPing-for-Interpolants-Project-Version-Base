@@ -50,6 +50,14 @@ struct Clause {
   bool vivified : 1; // clause already vivified
   bool vivify : 1;   // clause scheduled to be vivified
 
+  // Drupper
+  //
+  bool core:1;          // clause has been found to be core since last 'trim'.
+  // TODO: (Basel) Avoid storing 'drup_idx' as part of Clause object by default.
+  // (1) Can Either allocate 'drup_idx' iff drup is on. (2) Alternatively, can
+  // have the mapping embedded in Internal::Drupper::unordered_map<Clause *, int>.
+  unsigned drup_idx:30; // reverse mapping used by drupper.
+
   // The glucose level ('LBD' or short 'glue') is a heuristic value for the
   // expected usefulness of a learned clause, where smaller glue is consider
   // more useful.  During learning the 'glue' is determined as the number of
@@ -115,8 +123,12 @@ struct Clause {
     // of a clause is 8 bytes anyhow, we just allocate 8 byte aligned memory
     // all the time (even if allocated outside of the arena).
     //
-    assert (size > 1);
-    return align ((size - 2) * sizeof (int) + sizeof (Clause), 8);
+    // TODO: (Basel) As many of the Clause object info isn't relevant for unit
+    // clauses at all, avoid allocating clauses of size 1 and use Clause::id
+    // to store units in an internal Internal::Drupper structure.
+    assert (size > 0);
+    int surpluss = size == 1 ? 0 : size - 2;
+    return align (surpluss * sizeof (int) + sizeof (Clause), 8);
   }
 
   size_t bytes () const { return bytes (size); }

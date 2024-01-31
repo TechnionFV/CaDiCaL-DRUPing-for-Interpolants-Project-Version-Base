@@ -550,4 +550,23 @@ void Checker::print_stats () {
   MSG ("units:           %15" PRId64 "", stats.units);
 }
 
+void Drupper::print_stats () {
+  SECTION ("drupper statistics");
+
+  auto all = internal->stats.current.total + stats.units + stats.revived;
+  auto drup = stats.deleted + stats.derived;
+  auto vars = internal->stats.vars;
+
+  MSG ("DRUP proof:      %15" PRId64 "", drup);
+  MSG ("DRUP derived:    %15" PRId64 "   %10.2f %%  of DRUP proof size", stats.derived, percent (stats.derived, drup));
+  MSG ("DRUP deleted:    %15" PRId64 "   %10.2f %%  of DRUP proof size", stats.deleted, percent (stats.deleted, drup));
+  MSG ("revived:         %15" PRId64 "   %10.2f %%  of all clauses", stats.revived, percent (stats.revived, all));
+  MSG ("units:           %15" PRId64 "   %10.2f %%  of all clauses", stats.units, percent (stats.units, all));
+  for (unsigned i = 1; i <= stats.core_phase.size (); i++) {
+    MSG ("core phase %d:", i);
+    MSG ("#clauses             %11" PRId64 "   %10.2f %%  of all clauses", stats.core_phase[i-1].clauses, percent (stats.core_phase[i-1].clauses, all));
+    MSG ("#variables           %11" PRId64 "   %10.2f %%  of all variables", stats.core_phase[i-1].variables, percent (stats.core_phase[i-1].variables, vars));
+  }
+}
+
 } // namespace CaDiCaL

@@ -49,14 +49,16 @@ inline int Internal::assignment_level (int lit, Clause *reason) {
 
 /*------------------------------------------------------------------------*/
 
-inline void Internal::search_assign (int lit, Clause *reason) {
+///NOTE: The inlining of Internal::unassign is removed as Internal::Drupper
+// uses it.
+void Internal::search_assign (int lit, Clause *reason) {
 
   if (level)
     require_mode (SEARCH);
 
   const int idx = vidx (lit);
   assert (!vals[idx]);
-  assert (!flags (idx).eliminated () || reason == decision_reason);
+  assert (drupper || !flags (idx).eliminated () || reason == decision_reason);
   Var &v = var (idx);
   int lit_level;
 
@@ -71,12 +73,20 @@ inline void Internal::search_assign (int lit, Clause *reason) {
     lit_level = assignment_level (lit, reason);
   else
     lit_level = level;
-  if (!lit_level)
+  if (!drupper && !lit_level)
     reason = 0;
 
   v.level = lit_level;
   v.trail = (int) trail.size ();
   v.reason = reason;
+  if (drupper && reason) {
+    int * lits = reason->literals;
+    for (int i = 0; i < reason->size && lits[0] != lit; i++) {
+      if (lits[i] != lit) continue;
+      lits[i] = lits[0];
+      lits[0] = lit;
+    }
+  }
   if (!lit_level)
     learn_unit_clause (lit); // increases 'stats.fixed'
   const signed char tmp = sign (lit);
@@ -128,6 +138,17 @@ void Internal::search_assume_decision (int lit) {
   search_assign (lit, decision_reason);
 }
 
+void Internal::search_assume_multiple_decisions (const vector<int> & decisions) {
+  require_mode (SEARCH);
+  assert (propagated == trail.size () && decisions.size ());
+  for (int lit : decisions) {
+    level++;
+    control.push_back (Level (lit, trail.size()));
+    LOG ("search decide %d", lit);
+    search_assign (lit, decision_reason);
+  }
+}
+
 void Internal::search_assign_driving (int lit, Clause *c) {
   require_mode (SEARCH);
   search_assign (lit, c);
@@ -152,7 +173,7 @@ void Internal::search_assign_driving (int lit, Clause *c) {
 // propagation costs (2013 JAIR article by Ian Gent) at the expense of four
 // more bytes for each clause.
 
-bool Internal::propagate () {
+bool Internal::propagate (bool prefer_core) {
 
   if (level)
     require_mode (SEARCH);
@@ -169,6 +190,12 @@ bool Internal::propagate () {
 
     const int lit = -trail[propagated++];
     LOG ("propagating %d", -lit);
+
+    if (prefer_core) {
+      assert (drupper);
+      drupper->prefer_core_watches (lit);
+    }
+
     Watches &ws = watches (lit);
 
     const const_watch_iterator eow = ws.end ();
@@ -188,7 +215,7 @@ bool Internal::propagate () {
         // In principle we can ignore garbage binary clauses too, but that
         // would require to dereference the clause pointer all the time with
         //
-        // if (w.clause->garbage) { j--; continue; } // (*)
+        if (drupper && w.clause->garbage) { j--; continue; } // (*)
         //
         // This is too costly.  It is however necessary to produce correct
         // proof traces if binary clauses are traced to be deleted ('d ...'

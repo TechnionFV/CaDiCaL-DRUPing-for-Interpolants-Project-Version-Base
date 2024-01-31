@@ -18,6 +18,8 @@ void Internal::learn_empty_clause () {
   external->check_learned_empty_clause ();
   if (proof)
     proof->add_derived_empty_clause ();
+  if (drupper)
+    drupper->add_derived_empty_clause();
   unsat = true;
 }
 
@@ -26,6 +28,8 @@ void Internal::learn_unit_clause (int lit) {
   external->check_learned_unit_clause (lit);
   if (proof)
     proof->add_derived_unit_clause (lit);
+  if (drupper)
+    drupper->add_derived_unit_clause (lit);
   mark_fixed (lit);
 }
 

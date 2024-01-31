@@ -317,6 +317,12 @@ bool Internal::decompose_round () {
         proof->add_derived_clause (clause);
         proof->delete_clause (c);
       }
+      if (drupper) {
+        ///FIXME: (Basel) Does this need a special handling?
+        Clause * c = new_clause (true);
+        drupper->add_derived_clause (c);
+        drupper->delete_clause (c);
+      }
       size_t l;
       for (l = 2; l < clause.size (); l++)
         c->literals[l] = clause[l];

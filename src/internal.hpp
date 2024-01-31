@@ -55,6 +55,7 @@ extern "C" {
 #include "config.hpp"
 #include "contract.hpp"
 #include "cover.hpp"
+#include "drupper.hpp"
 #include "elim.hpp"
 #include "ema.hpp"
 #include "external.hpp"
@@ -212,6 +213,7 @@ struct Internal {
   Last last;                // statistics at last occurrence
   Inc inc;                  // increments on limits
   Proof *proof;             // clausal proof observers if non zero
+  Drupper * drupper;        // incremental drup based proof core and interpolants
   Checker *checker;         // online proof checker observing proof
   Tracer *tracer;           // proof to file tracer observing proof
   Options opts;             // run-time options
@@ -463,6 +465,7 @@ struct Internal {
   // of a clause and during connecting back all watches after preprocessing.
   //
   inline void watch_clause (Clause *c) {
+    assert (c->size > 1);
     const int l0 = c->literals[0];
     const int l1 = c->literals[1];
     watch_literal (l0, l1, c);
@@ -470,6 +473,7 @@ struct Internal {
   }
 
   inline void unwatch_clause (Clause *c) {
+    assert (c->size > 1);
     const int l0 = c->literals[0];
     const int l1 = c->literals[1];
     remove_watch (watches (l0), c);
@@ -533,7 +537,7 @@ struct Internal {
   void deallocate_clause (Clause *);
   void delete_clause (Clause *);
   void mark_garbage (Clause *);
-  void assign_original_unit (int);
+  void assign_original_unit (int, bool);
   void add_new_original_clause ();
   Clause *new_learned_redundant_clause (int glue);
   Clause *new_hyper_binary_resolved_clause (bool red, int glue);
@@ -546,8 +550,9 @@ struct Internal {
   void search_assign (int lit, Clause *);
   void search_assign_driving (int lit, Clause *reason);
   void search_assume_decision (int decision);
+  void search_assume_multiple_decisions (const vector<int> &);
   void assign_unit (int lit);
-  bool propagate ();
+  bool propagate (bool prefer_core = false);
 
   void propergate (); // Repropagate without blocking literals.
 
@@ -1171,6 +1176,7 @@ struct Internal {
   void flush_trace (); // Flush proof trace file.
   void trace (File *); // Start write proof file.
   void check ();       // Enable online proof checking.
+  void drup ();        // Enable drupper
 
   // Dump to '<stdout>' as DIMACS for debugging.
   //

@@ -177,6 +177,8 @@ void Internal::strengthen_clause (Clause *c, int lit) {
   LOG (c, "removing %d in", lit);
   if (proof)
     proof->strengthen_clause (c, lit);
+  if (drupper)
+    drupper->add_updated_clause (c);
   if (!c->redundant)
     mark_removed (lit);
   auto new_end = remove (c->begin (), c->end (), lit);

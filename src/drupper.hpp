@@ -190,6 +190,8 @@ class Drupper {
 
   void colorize (const vector<int> &) const;
 
+  void replay ();
+
   struct {
 
     int64_t trims = 0;   // number of trim calls
@@ -264,6 +266,8 @@ public:
   void join_analyzed_color_range (const int);
   void join_analyzed_color_range (const Clause *);
   void add_analyzed_color_range (Clause * c = 0);
+
+  void interpolate ();
 
   void print_stats ();
 };

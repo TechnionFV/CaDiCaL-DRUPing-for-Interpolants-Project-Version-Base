@@ -1304,9 +1304,8 @@ void Drupper::trim () {
   // Main trimming loop
   for (int i = proof.size () - 1 - (overconstrained); i >= 0; i--) {
     auto &dc = proof[i];
-    bool deleted = dc->deleted;
 
-    if (deleted) {
+    if (dc->deleted) {
       revive_clause (i);
       continue;
     }
@@ -1437,6 +1436,22 @@ void Drupper::add_analyzed_color_range (Clause * c) {
   assert (!analyzed_range.undef () && c && c->color_range.undef ());
   c->color_range.join (analyzed_range);
   analyzed_range.reset ();
+}
+
+void Drupper::replay () {
+
+  START (drup_replay);
+  LOG ("DRUPPER replay");
+
+  // Needs to be implemented
+
+  STOP (drup_replay);
+}
+
+void Drupper::interpolate () {
+  settings.reconstruct = false;
+  trim ();
+  replay ();
 }
 
 } // namespace CaDiCaL

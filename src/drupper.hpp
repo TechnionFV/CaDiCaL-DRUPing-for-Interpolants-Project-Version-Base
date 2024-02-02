@@ -40,6 +40,20 @@ its place.
 
 enum DCVariant { CLAUSE = 0, LITERALS = 1 };
 
+// Iterator for literals excluding the last one
+class DrupperClauseIterator {
+private:
+  const vector<int> & m_clause;
+  size_t m_index;
+
+public:
+  explicit DrupperClauseIterator(const vector<int>&, size_t);
+  int operator*() const;
+  DrupperClauseIterator& operator++();
+  DrupperClauseIterator& operator+(const int);
+  bool operator!=(const DrupperClauseIterator& other) const;
+};
+
 class DrupperClause {
   bool variant : 1;
 
@@ -47,24 +61,45 @@ public:
   bool deleted : 1;
   unsigned revive_at : 30;
 
-private:
+protected:
   union {
     Clause *counterpart;
     vector<int> *literals;
   };
+  const vector<int> & lits () const;
 
 public:
-  DrupperClause (vector<int> c, bool deletion = false);
+  DrupperClause (vector<int> c, const int code, bool deletion = false);
   DrupperClause (Clause *c, bool deletion = false);
   ~DrupperClause ();
   DCVariant variant_type () const;
   void destroy_variant ();
   void set_variant (Clause *);
-  void set_variant (const vector<int> &);
   Clause *flip_variant ();
   Clause *clause ();
-  vector<int> &lits ();
-  const vector<int> &lits () const;
+  int color_range_code () const;
+  int size () const;
+  DrupperClauseIterator lits_begin () const;
+  DrupperClauseIterator lits_end () const;
+};
+
+class ColorRange
+{
+  unsigned m_min:16, m_max:16;
+public:
+  ColorRange ();
+  ColorRange (const unsigned);
+  bool undef () const;
+  void reset ();
+  bool singleton () const;
+  void join (const unsigned np);
+  void join(const ColorRange& o);
+  unsigned min () const;
+  unsigned max () const;
+  bool operator==(const ColorRange& r);
+  bool operator!=(const ColorRange& r);
+  void operator=(const int);
+  int code () const;
 };
 
 struct lock_scope {
@@ -95,6 +130,7 @@ class Drupper {
   vector<DrupperClause *> proof;
 
   Clause *new_garbage_redundant_clause (const vector<int> &);
+  Clause * new_garbage_redundant_clause (const DrupperClause *);
   Clause *new_unit_clause (const int, bool);
   vector<Clause *> unit_clauses;
 
@@ -104,11 +140,13 @@ class Drupper {
 
   bool trivially_satisfied (const vector<int> &);
   void append_lemma (DrupperClause *);
-  void append_failed (const vector<int> &);
+  void append_failed (const vector<int> &, const ColorRange &);
   void revive_clause (const int);
   void stagnate_clause (const int);
   void reactivate_fixed (int);
 
+  // Trimming
+  //
   void shrink_internal_trail (const unsigned);
   void clean_conflict ();
 
@@ -132,6 +170,8 @@ class Drupper {
   void reallocate (const unsigned);
   void reconstruct (unsigned);
 
+  // Debug
+  //
   void check_environment () const;
   void dump_clauses (bool active = false) const;
   void dump_clause (const Clause *) const;
@@ -143,7 +183,12 @@ class Drupper {
   bool core_is_unsat () const;
   void dump_core () const;
 
-  friend class DrupperClause;
+  // Interpolation
+  //
+  unsigned current_color:16;
+  ColorRange analyzed_range;
+
+  void colorize (const vector<int> &) const;
 
   struct {
 
@@ -209,6 +254,16 @@ public:
   void trim ();
 
   void prefer_core_watches (const int);
+
+  int pick_new_color ();
+
+  void colorize (Clause *) const;
+  void colorize_unit (const int) const;
+
+  void init_analyzed_color_range (const Clause * c = 0);
+  void join_analyzed_color_range (const int);
+  void join_analyzed_color_range (const Clause *);
+  void add_analyzed_color_range (Clause * c = 0);
 
   void print_stats ();
 };

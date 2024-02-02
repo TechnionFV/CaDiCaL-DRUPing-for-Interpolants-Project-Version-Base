@@ -57,6 +57,7 @@ struct Clause {
   // (1) Can Either allocate 'drup_idx' iff drup is on. (2) Alternatively, can
   // have the mapping embedded in Internal::Drupper::unordered_map<Clause *, int>.
   unsigned drup_idx:30; // reverse mapping used by drupper.
+  ColorRange color_range;
 
   // The glucose level ('LBD' or short 'glue') is a heuristic value for the
   // expected usefulness of a learned clause, where smaller glue is consider

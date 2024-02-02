@@ -267,6 +267,11 @@ bool Internal::resolve_clauses (Eliminator &eliminator, Clause *c,
 
   stats.elimres++;
 
+  if (drupper) {
+    drupper->init_analyzed_color_range (c);
+    drupper->join_analyzed_color_range (d);
+  }
+
   if (c->garbage || d->garbage)
     return false;
   if (c->size > d->size) {

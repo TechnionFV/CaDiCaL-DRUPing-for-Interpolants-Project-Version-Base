@@ -1135,9 +1135,9 @@ void Drupper::add_falsified_original_clause (const vector<int> &clause,
     // See discussion in Drupper::delete_clause (const vector<int> &, bool);
     vector<int> modified = remove_duplicates (internal, clause);
     swap_falsified_literals_right (internal, modified);
-    if (modified.size () == 1)
+    if (modified.size () == 1) {
       final_conflict = new_unit_clause (modified[0], false);
-    else {
+    } else {
       final_conflict = new_garbage_redundant_clause (modified);
       internal->watch_clause (final_conflict);
       final_conflict->garbage = false;
@@ -1145,6 +1145,7 @@ void Drupper::add_falsified_original_clause (const vector<int> &clause,
         if (internal->flags (lit).eliminated ())
           internal->reactivate (lit);
     }
+    colorize (final_conflict);
   }
   assert (final_conflict);
   LOG ("DRUPPER derived empty clause notification");

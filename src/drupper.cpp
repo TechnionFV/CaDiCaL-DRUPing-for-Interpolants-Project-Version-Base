@@ -769,8 +769,11 @@ void Drupper::unmark_core () {
   for (Clause *c : unit_clauses)
     if (c->core)
       c->core = false, stats.core.clauses--;
-  stats.core.variables = 0;
   assert (stats.core.clauses == 0);
+  Range vars (internal->max_var);
+  for (auto idx : vars)
+    internal->flags (idx).core = false;
+  stats.core.variables = 0;
 }
 
 void Drupper::restore_trail () {

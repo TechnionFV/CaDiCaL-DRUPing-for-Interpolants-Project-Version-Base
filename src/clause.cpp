@@ -394,7 +394,7 @@ void Internal::add_new_original_clause () {
       proof->delete_clause (original);
   } else {
     size_t size = clause.size ();
-    const bool derived = original.size () > (size + duplicated);
+    const bool derived = (original.size () > (size + duplicated)) && size;
     if (!size) {
       if (!unsat) {
         if (!original.size ())

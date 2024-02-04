@@ -1,5 +1,4 @@
 #include "internal.hpp"
-#include "unordered_set"
 
 namespace CaDiCaL {
 

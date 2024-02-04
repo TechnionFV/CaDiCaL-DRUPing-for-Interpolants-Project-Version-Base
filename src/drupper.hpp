@@ -1,8 +1,6 @@
 #ifndef _drupper_hpp_INCLUDED
 #define _drupper_hpp_INCLUDED
 
-#include <unordered_map>
-
 namespace CaDiCaL {
 
 /*-----------------------------------------------------------------------------------

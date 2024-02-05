@@ -107,6 +107,8 @@ Drupper::~Drupper () {
 void Drupper::set (const char *setting, bool val) {
   if (!strcmp (setting, "core_units"))
     settings.core_units = val;
+  else if (!strcmp (setting, "unmark_core"))
+    settings.unmark_core = val;
   else if (!strcmp (setting, "reconstruct"))
     settings.reconstruct = val;
   else if (!strcmp (setting, "prefer_core"))
@@ -628,9 +630,8 @@ void Drupper::restore_trail () {
   }
 }
 
-void Drupper::reallocate (const unsigned proof_sz) {
-
-  assert (isolated);
+void Drupper::restore_proof_garbage_marks () {
+  lock_scope isolate (isolated);
 
   for (DrupperClause *dc : proof) {
     Clause *c = dc->clause ();
@@ -642,15 +643,19 @@ void Drupper::reallocate (const unsigned proof_sz) {
 
   if (failed_constraint) {
     failed_constraint->garbage = true;
-    failed_constraint = 0;
   }
 
-  if (overconstrained) { // regardless?
+  if (overconstrained) {
     assert (final_conflict);
     final_conflict->garbage = true;
   }
 
-  final_conflict = 0;
+  final_conflict = failed_constraint = 0;
+}
+
+void Drupper::reconstruct (const unsigned proof_sz) {
+  START (drup_reconstruct);
+  lock_scope isolate (isolated);
 
   if (proof.size () > proof_sz) {
     int pop = proof.size () - proof_sz;
@@ -667,12 +672,12 @@ void Drupper::reallocate (const unsigned proof_sz) {
       delete dc;
     };
   }
+
   /// FIXME: Garbage clauses will be deallocated from memory only once all
   /// variant wrappers are converted to integer literals.
   // This implies that, during this process, each garbage clause will retain
   // an object reference in memory alongside the literals, potentially
   // causing a significant memory peak.
-
   /// NOTE: Must not maintain garbage references anymore as they will be
   /// reallocated in the future.
   if (!internal->protected_reasons)
@@ -696,13 +701,7 @@ void Drupper::reallocate (const unsigned proof_sz) {
     }
   }
   internal->unprotect_reasons ();
-}
 
-void Drupper::reconstruct (const unsigned proof_sz) {
-  lock_scope isolate (isolated);
-  START (drup_reconstruct);
-  unmark_core ();
-  reallocate (proof_sz);
   STOP (drup_reconstruct);
 }
 
@@ -1190,18 +1189,19 @@ void Drupper::trim () {
 #endif
   }
 
-  /// NOTE: In typical scenarios, once the formula undergoes trimming in
-  /// primary applications, the
-  // solver ceases further solving efforts. Nevertheless, in cases where the
-  // user desires to persist with solving post-trimming, it becomes
-  // necessary to restore the solver's state.
-  // This process involves:
-  // 1) Removing marks from core clauses to permit formula trimming anew
-  //    (useful for testing).
-  // 2) Connecting detached clauses again and deallocating resources that
-  //    have been allocated during trim().
-  if (settings.reconstruct)
-    reconstruct (proof_sz);
+  restore_proof_garbage_marks ();
+
+  {
+    /// NOTE: In typical scenarios, once the formula undergoes trimming in
+    /// primary applications, the solver ceases further solving efforts.
+    // Nevertheless, in cases where the user desires to persist with
+    // solving post-trimming, it becomes necessary to restore the solver's
+    // state.
+    if (settings.unmark_core)
+        unmark_core ();
+    // if (settings.reconstruct)
+    //   reconstruct (proof_sz);
+  }
 
   restore_trail ();
 

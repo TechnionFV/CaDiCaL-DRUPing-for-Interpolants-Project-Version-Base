@@ -127,7 +127,7 @@ class Drupper {
   void mark_core_trail_antecedents ();
   void unmark_core ();
   void restore_trail ();
-  void reallocate (const unsigned);
+  void restore_proof_garbage_marks ();
   void reconstruct (unsigned);
 
   void check_environment () const;
@@ -169,13 +169,15 @@ class Drupper {
                           // debug mode only)
     bool prefer_core : 1; // sorts watches to propagate core literals first
                           // during trim
+    bool unmark_core : 1; // remove core marks after trim (useful for testing)
     bool reconstruct : 1; // reconstruct the solver state after trim
 
     Settings () { // default
       core_units = false;
       check_core = true;
       prefer_core = false;
-      reconstruct = true;
+      unmark_core = true;
+      reconstruct = false;
     }
 
   } settings;

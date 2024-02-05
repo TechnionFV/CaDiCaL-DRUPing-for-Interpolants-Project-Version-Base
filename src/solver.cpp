@@ -745,6 +745,28 @@ void Solver::unphase (int lit) {
 
 /*------------------------------------------------------------------------*/
 
+void Solver::trim () {
+  TRACE ("trim");
+  REQUIRE_VALID_STATE ();
+  REQUIRE (state () == UNSATISFIED,
+    "can only trim if instance has been found unsatisfiable");
+  REQUIRE (internal->opts.drup == 1,
+    "drup option must e already set");
+  external->trim ();
+}
+
+vector<int> Solver::extract_core_variables () {
+  TRACE ("extract_core_variables");
+  REQUIRE_VALID_STATE ();
+  REQUIRE (state () == UNSATISFIED,
+    "can only extract core if instance has been found unsatisfiable");
+  REQUIRE (internal->opts.drup == 1,
+    "drup option must e already set");
+  return external->extract_core_variables ();
+}
+
+/*------------------------------------------------------------------------*/
+
 void Solver::terminate () {
   LOG_API_CALL_BEGIN ("terminate");
   REQUIRE_VALID_OR_SOLVING_STATE ();

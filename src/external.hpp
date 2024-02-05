@@ -302,6 +302,12 @@ struct External {
 
   /*----------------------------------------------------------------------*/
 
+  void trim ();
+
+  vector<int> extract_core_variables ();
+
+  /*----------------------------------------------------------------------*/
+
   int lookahead ();
   CaDiCaL::CubesWithStatus generate_cubes (int, int);
 

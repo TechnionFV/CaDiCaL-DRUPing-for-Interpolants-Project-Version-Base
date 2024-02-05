@@ -176,7 +176,7 @@ class Drupper {
       core_units = false;
       check_core = true;
       prefer_core = false;
-      unmark_core = true;
+      unmark_core = false;
       reconstruct = false;
     }
 
@@ -207,7 +207,7 @@ public:
   void update_moved_counterparts ();
 
   void trim ();
-
+  vector<int> extract_core_variables ();
   void prefer_core_watches (const int);
 
   void print_stats ();

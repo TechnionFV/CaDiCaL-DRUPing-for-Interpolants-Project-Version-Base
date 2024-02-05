@@ -413,10 +413,8 @@ void Internal::add_new_original_clause () {
       if (drupper)
         drupper->delete_clause (original, true);
     }
-    if (drupper && !size && original.size ()) {
+    if (drupper && !size && original.size ())
       drupper->add_falsified_original_clause (original, derived);
-      drupper->trim (/* overconstrained */);
-    }
   }
   clause.clear ();
 }

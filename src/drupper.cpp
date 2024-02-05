@@ -11,6 +11,16 @@ void Internal::drup () {
   drupper = new Drupper (this);
 }
 
+void Internal::trim () {
+  assert (drupper);
+  drupper->trim ();
+}
+
+vector<int> Internal::extract_core_variables () {
+  assert (drupper);
+  return drupper->extract_core_variables ();
+}
+
 /*------------------------------------------------------------------------*/
 
 DrupperClause::DrupperClause (vector<int> c, bool deletion)
@@ -1206,6 +1216,31 @@ void Drupper::trim () {
   restore_trail ();
 
   STOP (drup_trim);
+}
+
+vector<int> Drupper::extract_core_variables () {
+
+  LOG ("DRUPPER extract_core_variables");
+
+  vector<int> core_vars;
+  if (!stats.trims)
+    return core_vars;
+
+  ///NOTE: If 'settings.unmark_core' is ON, core
+  // marks are removed at the end of ::trim ()
+  assert (!settings.unmark_core);
+
+  Range vars (internal->max_var);
+  for (auto idx : vars)
+    if (internal->flags (idx).core)
+      core_vars.push_back (idx);
+
+  {
+    // TODO: Remove marks from core once extracted.
+    // unmark_core ();
+  }
+
+  return core_vars;
 }
 
 /// FIXME: experimental trivial implementation... Needs refactoring.

@@ -1176,7 +1176,10 @@ struct Internal {
   void flush_trace (); // Flush proof trace file.
   void trace (File *); // Start write proof file.
   void check ();       // Enable online proof checking.
-  void drup ();        // Enable drupper
+
+  void drup ();                           // Enable drupper
+  void trim ();                           // drupper->trim
+  vector<int> extract_core_variables ();  // drupper->extract_core_variables
 
   // Dump to '<stdout>' as DIMACS for debugging.
   //

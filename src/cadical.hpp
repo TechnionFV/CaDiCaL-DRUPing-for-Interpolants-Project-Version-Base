@@ -346,6 +346,23 @@ public:
   bool constraint_failed ();
 
   //------------------------------------------------------------------------
+
+  // DRUP trim
+  //
+  //   require (UNSATISFIED)
+  //   ensure (UNSATISFIED)
+  //
+  void trim ();
+
+  // Returns the set if all variables that have been
+  // marked as core during the trimming procedure.
+  //
+  //   require (UNSATISFIED)
+  //   ensure (UNSATISFIED)
+  //
+  std::vector<int> extract_core_variables ();
+
+  //------------------------------------------------------------------------
   // This function determines a good splitting literal.  The result can be
   // zero if the formula is proven to be satisfiable or unsatisfiable.  This
   // can then be checked by 'state ()'.  If the formula is empty and

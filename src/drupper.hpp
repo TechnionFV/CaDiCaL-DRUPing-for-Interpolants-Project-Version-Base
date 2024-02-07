@@ -1,8 +1,6 @@
 #ifndef _drupper_hpp_INCLUDED
 #define _drupper_hpp_INCLUDED
 
-#include <unordered_map>
-
 namespace CaDiCaL {
 
 /*-----------------------------------------------------------------------------------
@@ -167,7 +165,7 @@ class Drupper {
   void mark_core_trail_antecedents ();
   void unmark_core ();
   void restore_trail ();
-  void reallocate (const unsigned);
+  void restore_proof_garbage_marks ();
   void reconstruct (unsigned);
 
   // Debug
@@ -218,13 +216,15 @@ class Drupper {
                           // debug mode only)
     bool prefer_core : 1; // sorts watches to propagate core literals first
                           // during trim
+    bool unmark_core : 1; // remove core marks after trim (useful for testing)
     bool reconstruct : 1; // reconstruct the solver state after trim
 
     Settings () { // default
       core_units = false;
       check_core = true;
       prefer_core = false;
-      reconstruct = true;
+      unmark_core = false;
+      reconstruct = false;
     }
 
   } settings;
@@ -254,7 +254,7 @@ public:
   void update_moved_counterparts ();
 
   void trim ();
-
+  vector<int> extract_core_variables ();
   void prefer_core_watches (const int);
 
   int pick_new_color ();

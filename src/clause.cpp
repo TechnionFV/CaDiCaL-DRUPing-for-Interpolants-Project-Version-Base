@@ -427,10 +427,8 @@ void Internal::add_new_original_clause () {
     }
     if (drupper) {
       drupper->add_analyzed_color_range();
-      if (!size && original.size ()) {
+      if (!size && original.size ())
         drupper->add_falsified_original_clause (original, derived);
-        drupper->trim (/* overconstrained */);
-      }
     }
   }
   clause.clear ();

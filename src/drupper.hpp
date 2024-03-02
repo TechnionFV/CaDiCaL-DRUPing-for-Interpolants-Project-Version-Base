@@ -97,7 +97,7 @@ class Drupper {
   vector<Clause *> unit_clauses;
 
   Clause *failed_constraint, *final_conflict;
-  bool isolated, validating, overconstrained;
+  bool isolated, validating, overconstrained, marked_core_variables;
   File *file;
 
   bool trivially_satisfied (const vector<int> &);

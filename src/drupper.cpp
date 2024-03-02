@@ -91,7 +91,7 @@ const vector<int> &DrupperClause::lits () const {
 
 Drupper::Drupper (Internal *i, File *f)
     : internal (i), failed_constraint (0), final_conflict (0), isolated (0),
-      validating (0), overconstrained (0), file (f) {
+      validating (0), overconstrained (0), marked_core_variables (0), file (f) {
   LOG ("DRUPPER new");
 
   setup_internal_options ();
@@ -441,8 +441,6 @@ void Drupper::mark_core (Clause *c) {
   assert (c);
   if (c->core)
     return;
-  for (int l : *c)
-    mark_core (l);
   stats.core.clauses++;
   c->core = true;
 }
@@ -461,11 +459,12 @@ void Drupper::mark_conflict () {
     mark_core (final_conflict);
     for (int lit : *final_conflict)
       mark_conflict_lit (lit);
+    final_conflict->redundant = false;
   } else {
     if (internal->unsat_constraint && internal->constraint.size () > 1) {
       failed_constraint =
           new_garbage_redundant_clause (internal->constraint);
-      failed_constraint->garbage = false;
+      failed_constraint->redundant = failed_constraint->garbage = false;
       mark_core (failed_constraint);
       internal->watch_clause (failed_constraint);
     }
@@ -478,8 +477,10 @@ void Drupper::mark_conflict () {
 void Drupper::mark_failing (const int proof_sz) {
   assert (proof_sz < proof.size () && !((proof.size () - proof_sz) % 2));
   for (int i = proof_sz; i < proof.size (); i++)
-    if ((i - proof_sz) % 2)
+    if ((i - proof_sz) % 2) {
       mark_core (proof[i]->clause ());
+      proof[i]->clause ()->redundant = false;
+    }
 }
 
 /*------------------------------------------------------------------------*/
@@ -624,6 +625,7 @@ void Drupper::unmark_core () {
   Range vars (internal->max_var);
   for (auto idx : vars)
     internal->flags (idx).core = false;
+  marked_core_variables = false;
   stats.core.variables = 0;
 }
 
@@ -839,9 +841,9 @@ bool Drupper::core_is_unsat () const {
   CaDiCaL::Solver s;
   s.set ("drup", 0);
   for (Clause *c : internal->clauses)
-    if (c->core) {
-      for (int *i = c->begin (); i != c->end (); i++)
-        s.add (*i);
+    if (c->core && !c->redundant) {
+      for (int lit : *c)
+        s.add (lit);
       s.add (0);
     }
   for (Clause *c : unit_clauses)
@@ -849,14 +851,13 @@ bool Drupper::core_is_unsat () const {
       s.add (c->literals[0]);
       s.add (0);
     }
-  for (int l : internal->assumptions)
-    if (internal->failed (l)) {
-      s.add (l);
+  for (int lit : internal->assumptions)
+    if (internal->failed (lit)) {
+      s.add (lit);
       s.add (0);
     }
   if (internal->unsat_constraint && internal->constraint.size () == 1) {
-    for (int i : internal->constraint)
-      s.add (i);
+    s.add (internal->constraint[0]);
     s.add (0);
   } // Otherwise should be part if internal->clauses
   return s.solve () == 20;
@@ -867,9 +868,9 @@ void Drupper::dump_core () const {
     return;
   file->put ("DUMP CORE START\n");
   for (Clause *c : internal->clauses)
-    if (c->core) {
-      for (int *i = c->begin (); i != c->end (); i++)
-        file->put (*i), file->put (' ');
+    if (c->core && !c->redundant) {
+      for (int lit : *c)
+        file->put (lit), file->put (' ');
       file->put ("0\n");
     }
   for (Clause *c : unit_clauses)
@@ -877,14 +878,13 @@ void Drupper::dump_core () const {
       file->put (c->literals[0]);
       file->put (" 0\n");
     }
-  for (int l : internal->assumptions)
-    if (internal->failed (l)) {
-      file->put (l);
+  for (int lit : internal->assumptions)
+    if (internal->failed (lit)) {
+      file->put (lit);
       file->put (" 0\n");
     }
   if (internal->unsat_constraint && internal->constraint.size () == 1) {
-    for (int i : internal->constraint)
-      file->put (i), file->put (' ');
+      file->put (internal->constraint[0]), file->put (' ');
     file->put ("0\n");
   } // Otherwise should be part if internal->clauses
   file->put ("DUMP CORE START\n");
@@ -995,6 +995,7 @@ void Drupper::add_falsified_original_clause (const vector<int> &clause,
           internal->reactivate (lit);
     }
   }
+  final_conflict->redundant = false;
   assert (final_conflict);
   LOG ("DRUPPER derived empty clause notification");
   STOP (drup_inprocess);
@@ -1222,6 +1223,22 @@ vector<int> Drupper::extract_core_variables () {
 
   LOG ("DRUPPER extract_core_variables");
 
+  if (!marked_core_variables) {
+    for (Clause *c : internal->clauses)
+      if (c->core && !c->redundant)
+        for (int lit : *c)
+          mark_core (lit);
+    for (Clause *c : unit_clauses)
+      if (c->core)
+        mark_core (c->literals[0]);
+    for (int lit : internal->assumptions)
+      if (internal->failed (lit))
+        mark_core (lit);
+    if (internal->unsat_constraint && internal->constraint.size () == 1)
+      mark_core (internal->constraint[0]);
+    marked_core_variables = true;
+  }
+
   vector<int> core_vars;
   if (!stats.trims)
     return core_vars;
@@ -1234,6 +1251,10 @@ vector<int> Drupper::extract_core_variables () {
   for (auto idx : vars)
     if (internal->flags (idx).core)
       core_vars.push_back (idx);
+
+  assert (stats.core.variables == core_vars.size ());
+  // assert (stats.core_phase.size ());
+  // stats.core_phase[stats.core_phase.size () - 1].variables = core_vars.size ();
 
   {
     // TODO: Remove marks from core once extracted.

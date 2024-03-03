@@ -21,6 +21,11 @@ vector<int> Internal::extract_core_variables () {
   return drupper->extract_core_variables ();
 }
 
+bool Internal::traverse_core_clauses (ClauseIterator &it) {
+  assert (drupper);
+  return drupper->traverse_core_clauses (it);
+}
+
 /*------------------------------------------------------------------------*/
 
 DrupperClause::DrupperClause (vector<int> c, bool deletion)
@@ -1262,6 +1267,50 @@ vector<int> Drupper::extract_core_variables () {
   }
 
   return core_vars;
+}
+
+bool Drupper::traverse_core_clauses (ClauseIterator &it) const {
+  assert (!settings.unmark_core);
+  vector<int> eclause;
+
+  for (Clause *c : internal->clauses)
+    if (c->core && !c->redundant) {
+      for (const auto &ilit : *c) {
+        const int elit = internal->externalize (ilit);
+        eclause.push_back (elit);
+      }
+      if (!it.clause (eclause))
+        return false;
+      eclause.clear ();
+    }
+
+  for (Clause *c : unit_clauses)
+    if (c->core) {
+      const int elit = internal->externalize (c->literals[0]);
+      eclause.push_back (elit);
+      if (!it.clause (eclause))
+        return false;
+      eclause.clear ();
+    }
+
+  for (int lit : internal->assumptions)
+    if (internal->failed (lit)) {
+      const int elit = internal->externalize (lit);
+      eclause.push_back (elit);
+      if (!it.clause (eclause))
+        return false;
+      eclause.clear ();
+    }
+
+  if (internal->unsat_constraint && internal->constraint.size () == 1) {
+    const int elit = internal->externalize (internal->constraint[0]);
+    eclause.push_back (elit);
+    if (!it.clause (eclause))
+      return false;
+    eclause.clear ();
+  } // Otherwise should be part if internal->clauses
+
+  return true;
 }
 
 /// FIXME: experimental trivial implementation... Needs refactoring.

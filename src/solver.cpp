@@ -751,7 +751,7 @@ void Solver::trim () {
   REQUIRE (state () == UNSATISFIED,
     "can only trim if instance has been found unsatisfiable");
   REQUIRE (internal->opts.drup == 1,
-    "drup option must e already set");
+    "drup option must be already set");
   external->trim ();
 }
 
@@ -761,8 +761,20 @@ vector<int> Solver::extract_core_variables () {
   REQUIRE (state () == UNSATISFIED,
     "can only extract core if instance has been found unsatisfiable");
   REQUIRE (internal->opts.drup == 1,
-    "drup option must e already set");
+    "drup option must be already set");
   return external->extract_core_variables ();
+}
+
+bool Solver::traverse_core_clauses (ClauseIterator &it) const {
+  REQUIRE_VALID_STATE ();
+  REQUIRE (state () == UNSATISFIED,
+    "can only extract core if instance has been found unsatisfiable");
+  REQUIRE (internal->opts.drup == 1,
+    "drup option must be already set");
+  LOG_API_CALL_BEGIN ("traverse_core_clauses");
+  bool res = internal->traverse_core_clauses (it);
+  LOG_API_CALL_RETURNS ("traverse_core_clauses", res);
+  return res;
 }
 
 /*------------------------------------------------------------------------*/

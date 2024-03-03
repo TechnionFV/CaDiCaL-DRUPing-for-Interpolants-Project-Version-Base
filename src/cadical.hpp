@@ -354,13 +354,23 @@ public:
   //
   void trim ();
 
-  // Returns the set if all variables that have been
-  // marked as core during the trimming procedure.
+  // Returns the set if all variables that occur in irredundant clauses
+  // that have been marked as core during the trimming procedure.
   //
   //   require (UNSATISFIED)
   //   ensure (UNSATISFIED)
   //
   std::vector<int> extract_core_variables ();
+
+  // Enables traversing irredundant core clauses found during trim ().
+  //
+  // The return value is false if traversal is aborted early due to one of
+  // the visitor functions returning false.
+  //
+  //   require (UNSATISFIED)
+  //   ensure (UNSATISFIED)
+  //
+  bool traverse_core_clauses (ClauseIterator &) const;
 
   //------------------------------------------------------------------------
   // This function determines a good splitting literal.  The result can be

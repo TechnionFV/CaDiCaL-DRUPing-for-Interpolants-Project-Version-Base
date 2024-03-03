@@ -208,6 +208,7 @@ public:
 
   void trim ();
   vector<int> extract_core_variables ();
+  bool traverse_core_clauses (ClauseIterator &) const;
   void prefer_core_watches (const int);
 
   void print_stats ();

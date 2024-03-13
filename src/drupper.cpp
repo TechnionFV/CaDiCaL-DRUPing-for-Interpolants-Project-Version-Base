@@ -1337,7 +1337,7 @@ bool Drupper::traverse_core (CoreIterator &it) {
     eclause.clear ();
   }
 
-  save_core_phase_stats ();
+  stats.save_core_phase ();
 
   return true;
 }

@@ -140,9 +140,6 @@ class Drupper {
   void dump_proof () const;
   void dump_trail () const;
 
-  bool core_is_unsat () const;
-  void dump_core () const;
-
   bool traverse_core (CoreIterator &);
   bool traverse_core (CoreIterator &) const;
 
@@ -163,6 +160,10 @@ class Drupper {
     core_stats core;               // core statistics in current trim
     vector<core_stats> core_phase; // core statistics per trim phase
 
+  void save_core_phase () {
+    core_phase.push_back ({core.clauses, core.lemmas, core.variables});
+  }
+
   } stats;
 
   bool setup_internal_options ();
@@ -181,15 +182,11 @@ class Drupper {
       core_units = false;
       check_core = true;
       prefer_core = false;
-      unmark_core = true;
+      unmark_core = false;
       reconstruct = false;
     }
 
   } settings;
-
-  void save_core_phase_stats () {
-    stats.core_phase.push_back ({stats.core.clauses, stats.core.lemmas, stats.core.variables});
-  }
 
 public:
   Drupper (Internal *, File *f = 0);

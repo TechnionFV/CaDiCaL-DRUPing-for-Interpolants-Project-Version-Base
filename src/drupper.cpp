@@ -849,7 +849,7 @@ void Drupper::dump_clauses (bool active) const {
     Clause *c = internal->clauses[i];
     if (active && c->garbage && c->size != 2)
       continue;
-    printf ("(%d) %s %s: ", i + j + 1, c->garbage ? "garbage" : "       ");
+    printf ("(%d) %s: ", i + j + 1, c->garbage ? "garbage" : "       ");
     printf ("(%lu): ", int64_t (c));
     for (int j = 0; j < c->size; j++)
       printf ("%d ", c->literals[j]);

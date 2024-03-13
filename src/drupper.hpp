@@ -5,34 +5,32 @@ namespace CaDiCaL {
 
 /*-----------------------------------------------------------------------------------
 
-The code implements the algorithm introduced in "DRUPing For Interpolant", a
-paper by Arie Gurfinkel and Yakir Vizel. Drupper allows DRUP-based proof
-trimming, validation, interpolants and core extraction enabled by
-'opts.drup'.
+  The code implements the algorithm introduced in "DRUPing For Interpolant", a
+  paper by Arie Gurfinkel and Yakir Vizel. Drupper allows DRUP-based proof
+  trimming, validation, interpolants and core extraction enabled by 'opts.drup'.
 
-Limitations:
-  - Allowing other proof observers/checkers in parallel:
-    During validation/trimming procedure, drupper can delete or revive
-clauses that other Internal::Proof observers aren't aware of. As a result,
-enabling such observers and checkers in parallel might trigger errors.
+  Limitations:
+    - Allowing other proof observers/checkers in parallel:
+      During validation/trimming procedure, drupper can delete or revive
+      clauses that other Internal::Proof observers aren't aware of. As a result,
+      enabling such observers and checkers in parallel might trigger errors.
 
-  - Chronological backtracking enabled by 'opts.chrono':
-    The combination of chronological backtracking with the algorithm is
-challenging since invariants classically considered crucial to CDCL cease to
-hold. In its current implementation, the algorithm relies on the level order
-invariant which ensures the literals are ordered on the assignment trail in
-ascending order with respect to their decision level. This invariant is
-violated. In the interest of compatibility with chronological backtracking,
-adjustments to the implementation will be considered in the future.
+    - Chronological backtracking enabled by 'opts.chrono':
+      The combination of chronological backtracking with the algorithm is
+      challenging since invariants classically considered crucial to CDCL cease to
+      hold. In its current implementation, the algorithm relies on the level order
+      invariant which ensures the literals are ordered on the assignment trail in
+      ascending order with respect to their decision level. This invariant is
+      violated. In the interest of compatibility with chronological backtracking,
+      adjustments to the implementation will be considered in the future.
 
-  - Compatible [in/pre]processing techniques:
-    1) probing / advanced probing / lookahead: not resolution based.
-    2) conditioning / blocking: is this some sort of of BCE?
-    3) compacting: variables are revived in the process.
-    4) vivication: vivified (reason) clause must maintain first literal in
-its place.
+    - Compatible [in/pre]processing techniques:
+      1) probing / advanced probing / lookahead: not resolution based.
+      2) conditioning / blocking: is this some sort of of BCE?
+      3) compacting: variables are revived in the process.
+      4) vivication: vivified (reason) clause must maintain first literal in place.
 
-  - Avoid propagating binary clauses as soon as they are marked as garbage.
+    - Avoid propagating binary clauses as soon as they are marked as garbage.
 
 -----------------------------------------------------------------------------------*/
 

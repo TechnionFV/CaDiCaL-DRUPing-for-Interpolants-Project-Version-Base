@@ -1178,9 +1178,7 @@ struct Internal {
   void check ();       // Enable online proof checking.
 
   void drup ();                           // Enable drupper
-  void trim ();                           // drupper->trim
-  vector<int> extract_core_variables ();  // drupper->extract_core_variables
-  bool traverse_core_clauses (ClauseIterator &);
+  void trim (CoreIterator &);             // drupper->trim
 
   // Dump to '<stdout>' as DIMACS for debugging.
   //

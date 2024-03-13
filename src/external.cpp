@@ -88,16 +88,8 @@ void External::reset_limits () { internal->reset_limits (); }
 /*------------------------------------------------------------------------*/
 
 // DRUP trim
-void External::trim () {
-  internal->trim ();
-}
-
-vector<int> External::extract_core_variables () {
-  vector<int> core = internal->extract_core_variables ();
-  const int size = core.size ();
-  for (int i = 0; i < size; i++)
-    core[i] = internal->externalize (core[i]);
-  return core;
+void External::trim (CoreIterator &it) {
+  internal->trim (it);
 }
 
 /*------------------------------------------------------------------------*/

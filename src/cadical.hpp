@@ -196,6 +196,7 @@ class Learner;
 class Terminator;
 class ClauseIterator;
 class WitnessIterator;
+class CoreIterator;
 
 /*------------------------------------------------------------------------*/
 
@@ -352,25 +353,7 @@ public:
   //   require (UNSATISFIED)
   //   ensure (UNSATISFIED)
   //
-  void trim ();
-
-  // Returns the set if all variables that occur in irredundant clauses
-  // that have been marked as core during the trimming procedure.
-  //
-  //   require (UNSATISFIED)
-  //   ensure (UNSATISFIED)
-  //
-  std::vector<int> extract_core_variables ();
-
-  // Enables traversing irredundant core clauses found during trim ().
-  //
-  // The return value is false if traversal is aborted early due to one of
-  // the visitor functions returning false.
-  //
-  //   require (UNSATISFIED)
-  //   ensure (UNSATISFIED)
-  //
-  bool traverse_core_clauses (ClauseIterator &) const;
+  void trim (CoreIterator &);
 
   //------------------------------------------------------------------------
   // This function determines a good splitting literal.  The result can be
@@ -970,6 +953,22 @@ class ClauseIterator {
 public:
   virtual ~ClauseIterator () {}
   virtual bool clause (const std::vector<int> &) = 0;
+};
+
+/*------------------------------------------------------------------------*/
+
+// Allows to traverse the irredundant (original) core clauses of the
+// trimmed formula. For each irredundant core clause, clause () method
+// is triggered with that clause.
+//
+// If a triggered method returns 'false', traversal aborts early.
+
+class CoreIterator {
+public:
+  virtual ~CoreIterator () {}
+  virtual bool clause (const std::vector<int> &) = 0;
+  virtual bool assumption (const int) = 0;
+  virtual bool constraint (const std::vector<int> &) = 0;
 };
 
 /*------------------------------------------------------------------------*/

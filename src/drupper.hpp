@@ -92,12 +92,15 @@ class Drupper {
   //
   vector<DrupperClause *> proof;
 
-  Clause *new_garbage_redundant_clause (const vector<int> &);
+  Clause *new_redundant_clause (const vector<int> &);
+  // to keep up with internal->stats
+  void mark_garbage (Clause *);
+  void mark_active (Clause *);
   Clause *new_unit_clause (const int, bool);
   vector<Clause *> unit_clauses;
 
   Clause *failed_constraint, *final_conflict;
-  bool isolated, validating, overconstrained, marked_core_variables;
+  bool isolated, validating, overconstrained;
   File *file;
 
   bool trivially_satisfied (const vector<int> &);
@@ -114,7 +117,6 @@ class Drupper {
   void undo_trail_core (Clause *, unsigned &);
   bool is_on_trail (Clause *) const;
 
-  void mark_core (int);
   void mark_core (Clause *);
   void mark_conflict_lit (const int);
   void mark_conflict ();
@@ -141,6 +143,9 @@ class Drupper {
   bool core_is_unsat () const;
   void dump_core () const;
 
+  bool traverse_core (CoreIterator &);
+  bool traverse_core (CoreIterator &) const;
+
   friend class DrupperClause;
 
   struct {
@@ -152,7 +157,7 @@ class Drupper {
     int64_t units = 0;   // number of unit clauses allcoated
 
     typedef struct {
-      int64_t clauses = 0, variables = 0;
+      int64_t clauses = 0, lemmas = 0, variables = 0;
     } core_stats;
 
     core_stats core;               // core statistics in current trim
@@ -176,14 +181,14 @@ class Drupper {
       core_units = false;
       check_core = true;
       prefer_core = false;
-      unmark_core = false;
+      unmark_core = true;
       reconstruct = false;
     }
 
   } settings;
 
   void save_core_phase_stats () {
-    stats.core_phase.push_back ({stats.core.clauses, stats.core.variables});
+    stats.core_phase.push_back ({stats.core.clauses, stats.core.lemmas, stats.core.variables});
   }
 
 public:
@@ -206,9 +211,7 @@ public:
 
   void update_moved_counterparts ();
 
-  void trim ();
-  vector<int> extract_core_variables ();
-  bool traverse_core_clauses (ClauseIterator &) const;
+  void trim (CoreIterator &);
   void prefer_core_watches (const int);
 
   void print_stats ();

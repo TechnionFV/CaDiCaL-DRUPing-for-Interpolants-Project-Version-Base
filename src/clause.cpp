@@ -113,8 +113,9 @@ Clause *Internal::new_clause (bool red, int glue) {
   c->subsume = false;
   c->vivified = false;
   c->vivify = false;
-  c->core = false;
-  c->drup_idx = 0;
+  c->drup.core = false;
+  c->drup.lemma = red;
+  c->drup.idx = 0;
   c->used = 0;
 
   c->glue = glue;
@@ -227,7 +228,7 @@ size_t Internal::shrink_clause (Clause *c, int new_size) {
 // reclaimed immediately.
 
 void Internal::deallocate_clause (Clause *c) {
-  if (drupper && !c->moved && c->drup_idx)
+  if (drupper && !c->moved && c->drup.idx)
     drupper->deallocate_clause (c);
   char *p = (char *) c;
   if (arena.contains (p))

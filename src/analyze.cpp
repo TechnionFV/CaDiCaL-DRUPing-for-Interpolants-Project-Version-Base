@@ -652,6 +652,9 @@ Clause *Internal::on_the_fly_strengthen (Clause *conflict, int uip) {
   assert (conflict);
   ++stats.otfs.strengthened;
 
+  if (drupper)
+    drupper->add_updated_clause (conflict);
+
   int *lits = conflict->literals;
 
   assert (lits[0] == uip || lits[1] == uip);

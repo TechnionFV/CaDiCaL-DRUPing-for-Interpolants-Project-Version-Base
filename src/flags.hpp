@@ -31,10 +31,6 @@ struct Flags { // Variable flags.
   unsigned char assumed : 2;
   unsigned char failed : 2;
 
-  // Drupper
-  //
-  bool core : 1;
-
   enum {
     UNUSED = 0,
     ACTIVE = 1,
@@ -49,7 +45,7 @@ struct Flags { // Variable flags.
   // Initialized explicitly in 'Internal::init' through this function.
   //
   Flags () {
-    seen = keep = poison = removable = shrinkable = core = false;
+    seen = keep = poison = removable = shrinkable = false;
     subsume = elim = ternary = true;
     block = 3u;
     skip = assumed = failed = 0;

@@ -563,9 +563,12 @@ void Drupper::print_stats () {
   MSG ("revived:         %15" PRId64 "   %10.2f %%  of all clauses", stats.revived, percent (stats.revived, all));
   MSG ("units:           %15" PRId64 "   %10.2f %%  of all clauses", stats.units, percent (stats.units, all));
   for (unsigned i = 1; i <= stats.core_phase.size (); i++) {
+    auto total = stats.core_phase[i-1].clauses + stats.core_phase[i-1].lemmas;
     MSG ("core phase %d:", i);
-    MSG ("#clauses             %11" PRId64 "   %10.2f %%  of all clauses", stats.core_phase[i-1].clauses, percent (stats.core_phase[i-1].clauses, all));
-    MSG ("#variables           %11" PRId64 "   %10.2f %%  of all variables", stats.core_phase[i-1].variables, percent (stats.core_phase[i-1].variables, vars));
+    MSG ("  #variables         %11" PRId64 "   %10.2f %%  of all variables", stats.core_phase[i-1].variables, percent (stats.core_phase[i-1].variables, vars));
+    MSG ("  #clauses           %11" PRId64 "   %10.2f %%  of all clauses", stats.core_phase[i-1].clauses, percent (stats.core_phase[i-1].clauses, all));
+    MSG ("  #lemmas            %11" PRId64 "   %10.2f %%  of all clauses", stats.core_phase[i-1].lemmas, percent (stats.core_phase[i-1].lemmas, all));
+    MSG ("  #total             %11" PRId64 "   %10.2f %%  of all clauses", total, percent (total, all));
   }
 }
 

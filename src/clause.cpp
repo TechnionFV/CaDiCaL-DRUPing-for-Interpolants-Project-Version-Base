@@ -116,6 +116,7 @@ Clause *Internal::new_clause (bool red, int glue) {
   c->drup.core = false;
   c->drup.lemma = red;
   c->drup.idx = 0;
+  c->drup.range.reset ();
   c->used = 0;
 
   c->glue = glue;
@@ -358,6 +359,8 @@ void Internal::add_new_original_clause () {
     skip = true;
   } else {
     assert (clause.empty ());
+    if (drupper)
+      drupper->init_analyzed_color_range ();
     for (const auto &lit : original) {
       int tmp = marked (lit);
       if (tmp > 0) {
@@ -371,6 +374,8 @@ void Internal::add_new_original_clause () {
         tmp = val (lit);
         if (tmp < 0) {
           LOG ("removing falsified literal %d", lit);
+          if (drupper)
+            drupper->join_analyzed_color_range (lit);
         } else if (tmp > 0) {
           LOG ("satisfied since literal %d true", lit);
           skip = true;
@@ -402,8 +407,13 @@ void Internal::add_new_original_clause () {
     } else {
       Clause *c = new_clause (false);
       watch_clause (c);
-      if (drupper && derived)
-        drupper->add_derived_clause (c);
+      if (drupper) {
+        if (derived) {
+          drupper->add_analyzed_color_range(c);
+          drupper->add_derived_clause (c);
+        }
+        drupper->assign_color_range (c);
+      }
     }
     if (derived) {
       external->check_learned_clause ();
@@ -414,8 +424,11 @@ void Internal::add_new_original_clause () {
       if (drupper)
         drupper->delete_clause (original, true);
     }
-    if (drupper && !size && original.size ())
-      drupper->add_falsified_original_clause (original, derived);
+    if (drupper) {
+      drupper->add_analyzed_color_range();
+      if (!size && original.size ())
+        drupper->add_falsified_original_clause (original, derived);
+    }
   }
   clause.clear ();
 }
@@ -480,8 +493,14 @@ Clause *Internal::new_clause_as (const Clause *orig) {
   assert (!orig->redundant || !orig->keep || res->keep);
   if (proof)
     proof->add_derived_clause (res);
-  if (drupper)
+  if (drupper) {
+    ///FIXME: Not sure if this is sufficient. Need to ensure
+    // joining of all resolved clauses that caused the derivation
+    // of this clause.
+    drupper->init_analyzed_color_range (orig);
+    drupper->add_analyzed_color_range (res);
     drupper->add_derived_clause (res);
+  }
   assert (watching ());
   watch_clause (res);
   return res;
@@ -495,8 +514,10 @@ Clause *Internal::new_resolved_irredundant_clause () {
   Clause *res = new_clause (false);
   if (proof)
     proof->add_derived_clause (res);
-  if (drupper)
+  if (drupper) {
+    drupper->add_analyzed_color_range(res);
     drupper->add_derived_clause (res);
+  }
   assert (!watching ());
   return res;
 }

@@ -56,10 +56,12 @@ struct Clause {
     bool core : 1;    // clause has been found to be core since last 'trim'.
     bool lemma : 1;   // if core = true, this is an implied core lemma.
     // TODO: (Basel) Avoid storing 'idx' as part of Clause object by default.
-    // (1) Can Either allocate 'drup_idx' iff drup is on. (2) Alternatively, can
+    // (1) Can Either allocate 'drup.idx' iff drup is on. (2) Alternatively, can
     // have the mapping embedded in Internal::Drupper::unordered_map<Clause *, int>.
     unsigned idx:30;  // reverse mapping used by drupper.
+    ColorRange range;
   } drup;
+
 
   // The glucose level ('LBD' or short 'glue') is a heuristic value for the
   // expected usefulness of a learned clause, where smaller glue is consider

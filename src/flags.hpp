@@ -31,6 +31,10 @@ struct Flags { // Variable flags.
   unsigned char assumed : 2;
   unsigned char failed : 2;
 
+  // Drupper
+  //
+  ColorRange range;
+
   enum {
     UNUSED = 0,
     ACTIVE = 1,

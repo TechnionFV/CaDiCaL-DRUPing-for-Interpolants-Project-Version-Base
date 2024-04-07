@@ -44,9 +44,11 @@ struct Internal;
   PROFILE (bump, 4) \
   PROFILE (checking, 2) \
   PROFILE (drup_trim, 2) \
+  PROFILE (drup_replay, 2) \
   PROFILE (drup_analyze, 2) \
   PROFILE (drup_inprocess, 2) \
   PROFILE (drup_propagate, 2) \
+  PROFILE (drup_interpolate, 2) \
   PROFILE (drup_reconstruct, 2) \
   PROFILE (drup_repropagate, 2) \
   PROFILE (cdcl, 1) \

@@ -51,11 +51,11 @@ extern "C" {
 #include "block.hpp"
 #include "cadical.hpp"
 #include "checker.hpp"
+#include "drupper.hpp"
 #include "clause.hpp"
 #include "config.hpp"
 #include "contract.hpp"
 #include "cover.hpp"
-#include "drupper.hpp"
 #include "elim.hpp"
 #include "ema.hpp"
 #include "external.hpp"
@@ -552,7 +552,7 @@ struct Internal {
   void search_assume_decision (int decision);
   void search_assume_multiple_decisions (const vector<int> &);
   void assign_unit (int lit);
-  bool propagate (bool prefer_core = false);
+  bool propagate (bool core = false, int color = 0);
 
   void propergate (); // Repropagate without blocking literals.
 

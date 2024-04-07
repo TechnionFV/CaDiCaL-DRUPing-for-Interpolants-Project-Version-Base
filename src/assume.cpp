@@ -188,7 +188,7 @@ void Internal::failing () {
         proof->delete_clause (clause);
       }
       if (drupper)
-          drupper->add_failing_assumption (clause);
+        drupper->add_failing_assumption (clause);
     } else {
       for (auto lit : constraint) {
         clause.push_back (-lit);

@@ -111,6 +111,9 @@ void Internal::search_assign (int lit, Clause *reason) {
       __builtin_prefetch (&w, 0, 1);
     }
   }
+
+  if (drupper && !lit_level)
+    drupper->assign_color_range (lit);
 }
 
 /*------------------------------------------------------------------------*/
@@ -173,7 +176,7 @@ void Internal::search_assign_driving (int lit, Clause *c) {
 // propagation costs (2013 JAIR article by Ian Gent) at the expense of four
 // more bytes for each clause.
 
-bool Internal::propagate (bool prefer_core) {
+bool Internal::propagate (bool core, int color) {
 
   if (level)
     require_mode (SEARCH);
@@ -191,11 +194,6 @@ bool Internal::propagate (bool prefer_core) {
     const int lit = -trail[propagated++];
     LOG ("propagating %d", -lit);
 
-    if (prefer_core) {
-      assert (drupper);
-      drupper->prefer_core_watches (lit);
-    }
-
     Watches &ws = watches (lit);
 
     const const_watch_iterator eow = ws.end ();
@@ -209,6 +207,11 @@ bool Internal::propagate (bool prefer_core) {
 
       if (b > 0)
         continue; // blocking literal satisfied
+
+      if (core && !w.clause->drup.core)
+        continue;
+      if (color && color < w.clause->drup.range.max ())
+        continue;
 
       if (w.binary ()) {
 

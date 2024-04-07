@@ -246,8 +246,11 @@ inline void Internal::analyze_literal (int lit, int &open,
                                        int &antecedent_size) {
   assert (lit);
   Var &v = var (lit);
-  if (!v.level)
+  if (!v.level) {
+    if (drupper)
+      drupper->join_analyzed_color_range (lit);
     return;
+  }
   ++antecedent_size;
 
   Flags &f = flags (lit);
@@ -873,6 +876,9 @@ void Internal::analyze () {
   int resolved = 0; // number of resolution (0 = clause in CNF)
   const bool otfs = opts.otfs;
 
+  if (drupper)
+    drupper->init_analyzed_color_range (conflict);
+
   for (;;) {
     antecedent_size = 1; // for uip
     analyze_reason (uip, reason, open, resolvent_size, antecedent_size);
@@ -986,6 +992,9 @@ void Internal::analyze () {
   int jump;
   Clause *driving_clause = new_driving_clause (glue, jump);
   UPDATE_AVERAGE (averages.current.jump, jump);
+
+  if (drupper)
+    drupper->add_analyzed_color_range (driving_clause);
 
   int new_level = determine_actual_backtrack_level (jump);
   ;

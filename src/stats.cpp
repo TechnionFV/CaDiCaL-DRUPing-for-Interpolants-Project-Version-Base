@@ -560,6 +560,7 @@ void Drupper::print_stats () {
   MSG ("DRUP proof:      %15" PRId64 "", drup);
   MSG ("DRUP derived:    %15" PRId64 "   %10.2f %%  of DRUP proof size", stats.derived, percent (stats.derived, drup));
   MSG ("DRUP deleted:    %15" PRId64 "   %10.2f %%  of DRUP proof size", stats.deleted, percent (stats.deleted, drup));
+  MSG ("DRUP optimized:  %15" PRId64 "   %10.2f %%  of DRUP derived size", stats.optimized, percent (stats.optimized, stats.derived));
   MSG ("revived:         %15" PRId64 "   %10.2f %%  of all clauses", stats.revived, percent (stats.revived, all));
   MSG ("units:           %15" PRId64 "   %10.2f %%  of all clauses", stats.units, percent (stats.units, all));
   for (unsigned i = 1; i <= stats.core_phase.size (); i++) {

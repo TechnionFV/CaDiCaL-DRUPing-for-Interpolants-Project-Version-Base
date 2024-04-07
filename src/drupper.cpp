@@ -1,5 +1,7 @@
 #include "internal.hpp"
 
+#define COLOR_UNDEF 0
+
 namespace CaDiCaL {
 
 /*------------------------------------------------------------------------*/
@@ -22,6 +24,8 @@ struct CoreVerifier : public CoreIterator {
   Solver s;
   CoreVerifier () {
     s.set ("drup", 0);
+    s.set ("stats", 0);
+    s.set ("report", false);
   }
   bool clause (const std::vector<int> &c) {
     for (int lit : c)
@@ -40,46 +44,222 @@ struct CoreVerifier : public CoreIterator {
     return true;
   }
   bool verified () {
-    assert (!s.status());
-    return s.solve() == 20;
+    assert (!s.status ());
+    return s.solve () == 20;
   }
 };
 
 struct CorePrinter : public CoreIterator {
-  File *f;
-  CorePrinter (File *file, int vars, int clauses) : f (file) {
-    assert (file);
+  File *file;
+  CorePrinter (Internal *i, const char *path, int vars, int clauses) {
+    file = File::write (i, path);
     file->put ("p cnf ");
     file->put (vars);
     file->put (" ");
     file->put (clauses);
     file->put ('\n');
   }
+
+  ~CorePrinter () { delete file; }
+
   bool clause (const std::vector<int> &c) {
     for (int lit : c)
-      f->put (lit), f->put (' ');
-    f->put ("0\n");
+      file->put (lit), file->put (' ');
+    file->put ("0\n");
     return true;
   }
+
   bool assumption (const int lit) {
-    f->put (lit), f->put ("0\n");
+    file->put (lit), file->put ("0\n");
     return true;
   }
+
   bool constraint (const std::vector<int> &c) {
     for (int lit : c)
-      f->put (lit), f->put (' ');
-    f->put ("0\n");
+      file->put (lit), file->put (' ');
+    file->put ("0\n");
     return true;
   }
 };
 
 /*------------------------------------------------------------------------*/
 
-DrupperClause::DrupperClause (vector<int> c, bool deletion)
+class TraceCheck : public ResolutionProofIterator {
+private:
+  File *file;
+  unordered_map<Clause *, int> visited;
+  vector<int> units;
+  int ids;
+
+  void output (int lit) {
+    file->put (lit);
+    file->put (" ");
+  }
+
+  void output (Clause *c) {
+    assert (c);
+    for (int lit : *c)
+      output (lit);
+  }
+
+  void output (ChainDerivation &chain) {
+    const unsigned pivots_size = chain.pivots.size ();
+    const unsigned clauses_size = chain.clauses.size ();
+    unsigned i = 0;
+    output (visited[chain.clauses[0]]);
+    for (; i < pivots_size; i++)
+      if (i + 1 < clauses_size && chain.clauses[i + 1])
+        output (visited[chain.clauses[i + 1]]);
+      else
+        output (units[abs (chain.pivots[i])]);
+  }
+
+  void traverse_antecedents (ChainDerivation &chain) {
+    assert (chain.clauses.size ());
+    if (!visited[chain.clauses[0]]) {
+      output (ids);
+      visited[chain.clauses[0]] = ids++;
+      output (chain.clauses[0]);
+      file->put ("0 0\n");
+    }
+
+    for (unsigned i = 0; i < chain.pivots.size (); i++)
+      if (i + 1 < chain.clauses.size () && chain.clauses[i + 1]) {
+        if (!visited[chain.clauses[i + 1]]) {
+          output (ids);
+          visited[chain.clauses[i + 1]] = ids++;
+          output (chain.clauses[i + 1]);
+          file->put ("0 0\n");
+        }
+      } else {
+        auto &unit = units[abs (chain.pivots[i])];
+        if (!unit) {
+          output (ids);
+          unit = ids++;
+          output (chain.pivots[i]);
+          file->put ("0 0\n");
+        }
+      }
+  }
+
+public:
+  TraceCheck (Internal *internal, const char *path) : ids (1) {
+    file = File::write (internal, path);
+    units.resize (internal->max_var + 1, 0);
+  }
+
+  ~TraceCheck () { delete file; }
+
+  void resolution (int parent, int p1, Clause *p2) {
+
+    auto &p_unit = units[abs (p1)];
+
+    if (!p_unit) {
+      output (ids);
+      p_unit = ids++;
+      output (p1);
+      file->put ("0 0\n");
+    }
+
+    if (!visited[p2]) {
+      output (ids);
+      visited[p2] = ids++;
+      output (p2);
+      file->put ("0 0\n");
+    }
+
+    output (ids);
+    units[abs (parent)] = ids++;
+    output (parent);
+    file->put ("0 ");
+    output (p_unit);
+    output (visited[p2]);
+    file->put ("0\n");
+  }
+
+  void chain_resolution (ChainDerivation &chain, int parent) {
+
+    traverse_antecedents (chain);
+
+    output (ids);
+    units[abs (parent)] = ids++;
+    output (parent);
+    file->put ("0 ");
+    output (chain);
+    file->put ("0\n");
+  }
+
+  void chain_resolution (ChainDerivation &chain, Clause *parent = 0) {
+
+    traverse_antecedents (chain);
+
+    output (ids);
+    if (parent) {
+      visited[parent] = ids;
+      output (parent);
+    }
+    ids++;
+
+    file->put ("0 ");
+    output (chain);
+    file->put ("0\n");
+  }
+};
+
+/*------------------------------------------------------------------------*/
+
+LiteralSort::LiteralSort (Internal *i) : internal (i) {}
+
+bool LiteralSort::operator() (int x, int y) const {
+  int level_x = internal->var (x).level;
+  int level_y = internal->var (y).level;
+
+  if (level_x > level_y)
+    return true;
+  if (level_x < level_y)
+    return false;
+
+  const int val_x = internal->val (x);
+  const int val_y = internal->val (y);
+
+  if (!val_x)
+    return true;
+  if (!val_y)
+    return false;
+  assert (val_x && val_y);
+  if (val_x > 0)
+    return val_y < 0 ? true : x < y;
+  assert (val_x < 0);
+  return val_y > 0 ? false : x < y;
+}
+
+/*------------------------------------------------------------------------*/
+
+void ChainDerivation::clear () {
+  clauses.clear ();
+  pivots.clear ();
+}
+
+void ChainDerivation::append (Clause *c) { clauses.push_back (c); }
+
+void ChainDerivation::append (int lit, Clause *c) {
+  assert (lit);
+  pivots.push_back (lit);
+  clauses.push_back (c);
+}
+
+bool ChainDerivation::empty () const {
+  return clauses.empty () && pivots.empty ();
+}
+
+/*------------------------------------------------------------------------*/
+
+DrupperClause::DrupperClause (vector<int> c, int code, bool deletion)
     : deleted (deletion), revive_at (0) {
   assert (c.size ());
   variant = LITERALS;
   literals = new std::vector<int> (c);
+  literals->push_back (code);
 };
 
 DrupperClause::DrupperClause (Clause *c, bool deletion)
@@ -108,19 +288,16 @@ void DrupperClause::set_variant (Clause *c) {
   counterpart = c;
 }
 
-void DrupperClause::set_variant (const vector<int> &c) {
-  destroy_variant ();
-  variant = LITERALS;
-  literals = new std::vector<int> (c);
-}
-
 Clause *DrupperClause::flip_variant () {
   assert (variant_type () == CLAUSE);
   Clause *ref = counterpart;
   assert (ref);
-  set_variant (vector<int> ());
+  destroy_variant ();
+  variant = LITERALS;
+  literals = new std::vector<int> ();
   for (int lit : *ref)
     literals->push_back (lit);
+  literals->push_back (ref->drup.range.code ());
   return ref;
 }
 
@@ -129,30 +306,123 @@ Clause *DrupperClause::clause () {
   return counterpart;
 }
 
-vector<int> &DrupperClause::lits () {
-  assert (variant_type () == LITERALS && literals);
-  return *literals;
-}
-
 const vector<int> &DrupperClause::lits () const {
   assert (variant_type () == LITERALS && literals);
   return *literals;
 }
 
+int DrupperClause::color_range_code () const {
+  assert (variant_type () == LITERALS && literals);
+  return (*literals)[literals->size () - 1];
+}
+
+int DrupperClause::size () const {
+  if (variant_type () == LITERALS) {
+    assert (literals && literals->size () > 1);
+    return literals->size () - 1;
+  } else {
+    assert (counterpart); // what if 0 ?
+    return counterpart->size;
+  }
+}
+
+DrupperClauseIterator DrupperClause::lits_begin () const {
+  assert (variant_type () == LITERALS);
+  assert (literals && literals->size () > 1);
+  return DrupperClauseIterator (*literals, 0);
+}
+
+DrupperClauseIterator DrupperClause::lits_end () const {
+  assert (variant_type () == LITERALS);
+  assert (literals && literals->size () > 1);
+  return DrupperClauseIterator (*literals, literals->size () - 1);
+}
+
 /*------------------------------------------------------------------------*/
 
-Drupper::Drupper (Internal *i, File *f)
+DrupperClauseIterator::DrupperClauseIterator (const vector<int> &clause,
+                                              size_t index)
+    : m_clause (clause), m_index (index) {}
+
+int DrupperClauseIterator::operator* () const {
+  assert (m_index < m_clause.size () - 1);
+  return m_clause[m_index];
+}
+
+DrupperClauseIterator &DrupperClauseIterator::operator++ () {
+  ++m_index;
+  return *this;
+}
+
+DrupperClauseIterator &DrupperClauseIterator::operator+ (int index) {
+  m_index += index;
+  return *this;
+}
+
+bool DrupperClauseIterator::operator!= (
+    const DrupperClauseIterator &other) const {
+  return m_index != other.m_index;
+}
+
+/*------------------------------------------------------------------------*/
+
+ColorRange::ColorRange () : m_min (COLOR_UNDEF), m_max (COLOR_UNDEF) {}
+
+ColorRange::ColorRange (const unsigned c) : m_min (c), m_max (c) {}
+
+bool ColorRange::undef () const { return m_min == COLOR_UNDEF; }
+
+void ColorRange::reset () {
+  m_min = COLOR_UNDEF;
+  m_max = COLOR_UNDEF;
+}
+
+bool ColorRange::singleton () const { return m_min == m_max; }
+
+void ColorRange::join (const unsigned np) {
+  if (np == 0)
+    return;
+  if (undef ()) {
+    m_min = np;
+    m_max = np;
+  } else if (np > m_max)
+    m_max = np;
+  else if (np < m_min)
+    m_min = np;
+}
+
+void ColorRange::join (const ColorRange &o) {
+  if (o.undef ())
+    return;
+  join (o.min ());
+  join (o.max ());
+}
+
+unsigned ColorRange::min () const { return m_min; }
+
+unsigned ColorRange::max () const { return m_max; }
+
+bool ColorRange::operator== (const ColorRange &r) {
+  return m_min == r.min () && m_max == r.max ();
+}
+
+bool ColorRange::operator!= (const ColorRange &r) { return !(*this == r); }
+
+void ColorRange::operator= (int code) {
+  m_min = (code & 0xFFFF);
+  m_max = ((code >> 16) & 0xFFFF);
+}
+
+int ColorRange::code () const { return (m_max << 16) | m_min; }
+
+/*------------------------------------------------------------------------*/
+
+Drupper::Drupper (Internal *i)
     : internal (i), failed_constraint (0), final_conflict (0), isolated (0),
-      validating (0), overconstrained (0), file (f) {
+      in_action (0), overconstrained (0), max_color (1) {
   LOG ("DRUPPER new");
 
   setup_internal_options ();
-
-  if (internal->opts.drupdumpcore && !f)
-    file = File::write (internal, stderr, "<stderr>");
-
-  if (internal->opts.drupprefercore)
-    set ("prefer_core", 1);
 }
 
 Drupper::~Drupper () {
@@ -161,8 +431,7 @@ Drupper::~Drupper () {
   for (const auto &dc : proof)
     delete (DrupperClause *) dc;
   for (const auto &c : unit_clauses)
-    delete[](char *) c;
-  delete file;
+    delete[] (char *) c;
 }
 /*------------------------------------------------------------------------*/
 
@@ -173,8 +442,6 @@ void Drupper::set (const char *setting, bool val) {
     settings.unmark_core = val;
   else if (!strcmp (setting, "reconstruct"))
     settings.reconstruct = val;
-  else if (!strcmp (setting, "prefer_core"))
-    settings.prefer_core = val;
   else if (!strcmp (setting, "check_core"))
     settings.check_core = val;
   else
@@ -197,13 +464,6 @@ bool Drupper::setup_internal_options () {
 
 /*------------------------------------------------------------------------*/
 
-// Should be equivalent to
-// ```
-// internal->clause = clause
-// c = internal->new_clause ();
-// internal->clause.clear ();
-// internal->mark_garbage (c);
-// ```
 Clause *Drupper::new_redundant_clause (const vector<int> &clause) {
 
   assert (clause.size () <= (size_t) INT_MAX);
@@ -232,6 +492,7 @@ Clause *Drupper::new_redundant_clause (const vector<int> &clause) {
   c->drup.core = false;
   c->drup.lemma = true;
   c->drup.idx = 0;
+  c->drup.range.reset ();
   c->used = 0;
 
   c->glue = 0;
@@ -243,8 +504,62 @@ Clause *Drupper::new_redundant_clause (const vector<int> &clause) {
 
   assert (c->bytes () == bytes);
   auto &istats = internal->stats;
-  // istats.current.total++;
-  // istats.added.total++;
+  istats.current.total++;
+  istats.added.total++;
+  istats.current.redundant++;
+  istats.added.redundant++;
+
+  internal->clauses.push_back (c);
+  return c;
+}
+
+Clause *Drupper::new_redundant_clause (const DrupperClause *dc) {
+
+  assert (dc && dc->size () <= INT_MAX);
+  const int size = (int) dc->size ();
+  assert (size >= 2);
+
+  size_t bytes = Clause::bytes (size);
+  Clause *c = (Clause *) new char[bytes];
+
+  c->conditioned = false;
+  c->covered = false;
+  c->enqueued = false;
+  c->frozen = false;
+  c->garbage = false;
+  c->gate = false;
+  c->hyper = false;
+  c->instantiated = false;
+  c->keep = false;
+  c->moved = false;
+  c->reason = false;
+  c->redundant = true;
+  c->transred = false;
+  c->subsume = false;
+  c->vivified = false;
+  c->vivify = false;
+  c->drup.core = false;
+  c->drup.lemma = true;
+  c->drup.idx = 0;
+  c->drup.range = dc->color_range_code ();
+  c->used = 0;
+
+  c->glue = 0;
+  c->size = size;
+  c->pos = 2;
+
+  auto it = dc->lits_begin ();
+  auto end = dc->lits_end ();
+
+  for (int i = 0; i < size; i++, ++it) {
+    assert (it != end);
+    c->literals[i] = *it;
+  }
+
+  assert (c->bytes () == bytes);
+  auto &istats = internal->stats;
+  istats.current.total++;
+  istats.added.total++;
   istats.current.redundant++;
   istats.added.redundant++;
 
@@ -261,6 +576,8 @@ void Drupper::mark_garbage (Clause *c) {
     return;
   size_t bytes = c->bytes ();
   auto &istats = internal->stats;
+  assert (istats.current.total > 0);
+  istats.current.total--;
   if (c->redundant) {
     assert (istats.current.redundant > 0);
     istats.current.redundant--;
@@ -285,6 +602,7 @@ void Drupper::mark_active (Clause *c) {
     return;
   size_t bytes = c->bytes ();
   auto &istats = internal->stats;
+  istats.current.total++;
   if (c->redundant) {
     istats.current.redundant++;
   } else {
@@ -299,7 +617,7 @@ void Drupper::mark_active (Clause *c) {
   istats.garbage.literals -= c->size;
 }
 
-Clause *Drupper::new_unit_clause (const int lit, bool original) {
+Clause *Drupper::new_unit_clause (int lit, bool original) {
 
   size_t bytes = Clause::bytes (1);
   Clause *c = (Clause *) new char[bytes];
@@ -325,6 +643,7 @@ Clause *Drupper::new_unit_clause (const int lit, bool original) {
   c->drup.core = false;
   c->drup.lemma = !original;
   c->drup.idx = 0;
+  c->drup.range.reset ();
   c->used = c->glue = 0;
   c->size = 1;
   c->pos = 2;
@@ -338,7 +657,29 @@ Clause *Drupper::new_unit_clause (const int lit, bool original) {
   return c;
 }
 
+void Drupper::delete_garbage_unit_clauses () {
+  const auto end = unit_clauses.end ();
+  auto j = unit_clauses.begin (), i = j;
+  while (i != end) {
+    Clause *c = *j++ = *i++;
+    assert (c);
+    if (!c->garbage || is_on_trail (c))
+      continue;
+    delete[] (char *) c;
+    j--;
+  }
+  unit_clauses.resize (j - unit_clauses.begin ());
+}
+
 /*------------------------------------------------------------------------*/
+
+bool Drupper::satisfied (Clause *c) const {
+  assert (c);
+  for (int lit : *c)
+    if (internal->val (lit) > 0)
+      return true;
+  return false;
+}
 
 // Return true iff the clause contains a literal and its negation.
 bool Drupper::trivially_satisfied (const vector<int> &c) {
@@ -353,6 +694,20 @@ bool Drupper::trivially_satisfied (const vector<int> &c) {
     if (sorted[i] == -sorted[i - 1])
       return true;
   return false;
+}
+
+bool Drupper::clauses_are_identical (Clause *c,
+                                     const vector<int> &lits) const {
+  assert (c);
+  if (c->size != lits.size ())
+    return false;
+  bool identical = true;
+  internal->mark (c);
+  for (int lit : lits)
+    if (!internal->marked (lit))
+      identical = false;
+  internal->unmark (c);
+  return identical;
 }
 
 void Drupper::append_lemma (DrupperClause *dc) {
@@ -375,20 +730,11 @@ void Drupper::append_lemma (DrupperClause *dc) {
       assert (!c->garbage);
 #endif
     c->drup.idx = proof.size () + 1;
-    c->drup.lemma = c->redundant;
-    assert (!c->drup.core);
   }
   proof.push_back (dc);
 }
 
-void Drupper::append_failed (const vector<int> &c) {
-  append_lemma (new DrupperClause (c));
-  append_lemma (new DrupperClause (c, true));
-  int i = proof.size () - 1;
-  proof[i]->revive_at = i;
-}
-
-void Drupper::revive_clause (const int i) {
+void Drupper::revive_clause (int i) {
   assert (i >= 0 && i < proof.size ());
   DrupperClause *dc = proof[i];
   assert (dc->deleted);
@@ -396,8 +742,7 @@ void Drupper::revive_clause (const int i) {
   if (dc->variant_type () == CLAUSE)
     c = dc->clause ();
   else {
-    const auto &literals = dc->lits ();
-    c = new_redundant_clause (literals);
+    c = new_redundant_clause (dc);
     mark_garbage (c);
     c->drup.idx = i + 1;
     dc->set_variant (c);
@@ -410,9 +755,7 @@ void Drupper::revive_clause (const int i) {
   // redundant later in the the main trimming loop.
   c->drup.lemma = false;
   internal->watch_clause (c);
-  for (int lit : *c)
-    if (internal->flags (lit).eliminated ())
-      internal->reactivate (lit);
+  reactivate (c);
   if (dc->revive_at) {
 #ifndef NDEBUG
     int j = dc->revive_at - 1;
@@ -425,8 +768,7 @@ void Drupper::revive_clause (const int i) {
   stats.revived++;
 }
 
-void Drupper::stagnate_clause (const int i) {
-  Clause *c = proof[i]->clause ();
+void Drupper::stagnate_clause (Clause *c) {
   {
     // See the discussion in 'propagate' on avoiding to eagerly trace binary
     // clauses as deleted (produce 'd ...' lines) as soon they are marked
@@ -458,6 +800,16 @@ void Drupper::reactivate_fixed (int l) {
   internal->stats.active++;
 }
 
+void Drupper::reactivate (Clause *c) {
+  assert (c);
+  for (int lit : *c) {
+    auto &f = internal->flags (lit);
+    if (f.active () || internal->val (lit))
+      continue;
+    internal->reactivate (lit);
+  }
+}
+
 /*------------------------------------------------------------------------*/
 
 void Drupper::shrink_internal_trail (const unsigned trail_sz) {
@@ -477,7 +829,7 @@ void Drupper::clean_conflict () {
 
 /*------------------------------------------------------------------------*/
 
-void Drupper::undo_trail_literal (const int lit) {
+void Drupper::undo_trail_literal (int lit) {
   assert (internal->val (lit) > 0);
   if (!internal->active (lit))
     reactivate_fixed (lit);
@@ -539,7 +891,7 @@ void Drupper::mark_core (Clause *c) {
   c->drup.core = true;
 }
 
-void Drupper::mark_conflict_lit (const int l) {
+void Drupper::mark_conflict_lit (int l) {
   assert (internal->val (l) < 0);
   Var &v = internal->var (l);
   Clause *reason = v.reason;
@@ -554,9 +906,10 @@ void Drupper::mark_conflict () {
     for (int lit : *final_conflict)
       mark_conflict_lit (lit);
   } else {
+    assert (!internal->marked_failed || failing_assumptions.size ());
+    assert (internal->marked_failed || failing_assumptions.empty ());
     if (internal->unsat_constraint && internal->constraint.size () > 1) {
-      failed_constraint =
-          new_redundant_clause (internal->constraint);
+      failed_constraint = new_redundant_clause (internal->constraint);
       mark_core (failed_constraint);
       internal->watch_clause (failed_constraint);
     }
@@ -567,20 +920,10 @@ void Drupper::mark_conflict () {
   }
 }
 
-void Drupper::mark_failing (const int proof_sz) {
-  assert (proof_sz < proof.size () && !((proof.size () - proof_sz) % 2));
-  for (int i = proof_sz; i < proof.size (); i++)
-    if ((i - proof_sz) % 2) {
-      Clause *c = proof[i]->clause ();
-      mark_core (c);
-      c->drup.lemma = false;
-    }
-}
-
 /*------------------------------------------------------------------------*/
 
 void Drupper::assume_negation (const Clause *lemma) {
-  assert (validating && !internal->level);
+  assert (in_action && !internal->level);
   assert (lemma && lemma->drup.core);
   assert (internal->propagated == internal->trail.size ());
 
@@ -594,20 +937,20 @@ void Drupper::assume_negation (const Clause *lemma) {
   assert (internal->level == int (decisions.size ()));
 }
 
-bool Drupper::propagate_conflict () {
+bool Drupper::propagate_conflict (bool core) {
   START (drup_propagate);
   assert (!internal->conflict);
-  if (internal->propagate (settings.prefer_core)) {
+  if (propagate (core)) {
     START (drup_repropagate);
     {
       // If propagate fails, it may be due to incrementality and
       // missing units. re-propagate the entire trail.
       /// TODO: Understand what exactly happens and why is this needed.
       // A good point to start: test/trace/reg0048.trace.
-      assert (stats.trims);
+      // assert (stats.trims > 1);
     }
     internal->propagated = 0;
-    if (internal->propagate ()) {
+    if (propagate (core)) {
       internal->backtrack ();
       return false;
     }
@@ -617,21 +960,26 @@ bool Drupper::propagate_conflict () {
   return true;
 }
 
+bool Drupper::reverse_unit_propagation (Clause *c, bool core) {
+  assume_negation (c);
+  return propagate_conflict (core);
+}
+
+bool Drupper::got_value_by_propagation (int lit) const {
+  assert (lit && internal->val (lit) != 0);
+#ifndef NDEBUG
+  int trail = internal->var (lit).trail;
+  assert (trail >= 0 && trail < int (internal->trail.size ()));
+  assert (internal->trail[trail] == -lit);
+#endif
+  return internal->var (lit).trail > internal->control.back ().trail;
+}
+
 void Drupper::conflict_analysis_core () {
   START (drup_analyze);
   Clause *conflict = internal->conflict;
   assert (conflict);
   mark_core (conflict);
-
-  auto got_value_by_propagation = [this] (int lit) {
-    assert (internal->val (lit) != 0);
-#ifndef NDEBUG
-    int trail = internal->var (lit).trail;
-    assert (trail >= 0 && trail < int (internal->trail.size ()));
-    assert (internal->trail[trail] == -lit);
-#endif
-    return internal->var (lit).trail > internal->control.back ().trail;
-  };
 
 #ifndef NDEBUG
   int seen = 0;
@@ -718,11 +1066,14 @@ void Drupper::unmark_core () {
   stats.core.variables = 0;
 }
 
-void Drupper::restore_trail () {
+void Drupper::restore_trail (bool initial_data_base) {
   lock_scope isolate (isolated);
   // Restoring the trail is done with respect to the order of literals.
   // Each unit is allocated in the same order it's pushed the trail.
+  internal->propagate ();
   for (Clause *c : unit_clauses) {
+    if (initial_data_base && (c->drup.lemma))
+      continue;
     const int lit = c->literals[0];
     if (internal->val (lit))
       continue;
@@ -825,18 +1176,18 @@ void Drupper::check_environment () const {
           assert (c && c->garbage);
       } else {
         assert (dc->variant_type () == LITERALS);
-        assert (dc->variant_type () == LITERALS && dc->lits ().size ());
+        assert (dc->variant_type () == LITERALS && dc->size ());
         if (dc->revive_at) {
           assert (dc->revive_at <= proof.size ());
           assert (dc->revive_at > 0);
           auto &pdc = proof[dc->revive_at - 1];
           assert (!pdc->revive_at && !pdc->deleted);
           if (pdc->variant_type () == LITERALS)
-            assert (proof[dc->revive_at - 1]->lits ().size ());
+            assert (proof[dc->revive_at - 1]->size ());
         }
       }
     } else {
-      assert (dc->variant_type () == CLAUSE || dc->lits ().size ());
+      assert (dc->variant_type () == CLAUSE || dc->size ());
     }
   }
 #endif
@@ -849,7 +1200,10 @@ void Drupper::dump_clauses (bool active) const {
     Clause *c = internal->clauses[i];
     if (active && c->garbage && c->size != 2)
       continue;
-    printf ("(%d) %s: ", i + j + 1, c->garbage ? "garbage" : "       ");
+    printf ("%4d) %s %s (%d, %d): ", i + j + 1,
+            c->garbage ? "garbage" : "       ",
+            c->drup.core ? "core" : "    ", c->drup.range.min (),
+            c->drup.range.max ());
     printf ("(%lu): ", int64_t (c));
     for (int j = 0; j < c->size; j++)
       printf ("%d ", c->literals[j]);
@@ -859,7 +1213,10 @@ void Drupper::dump_clauses (bool active) const {
     Clause *c = unit_clauses[j];
     if (active && c->garbage && c->size != 2)
       continue;
-    printf ("(%d) %s: ", j, c->garbage ? "garbage" : "       ");
+    printf ("%4d) %s %s (%d, %d): ", j + 20,
+            c->garbage ? "garbage" : "       ",
+            c->drup.core ? "core" : "    ", c->drup.range.min (),
+            c->drup.range.max ());
     printf ("c: ");
     for (int j = 0; j < c->size; j++)
       printf ("%d ", c->literals[j]);
@@ -880,9 +1237,13 @@ void Drupper::dump_clause (const Clause *c) const {
 
 void Drupper::dump_clause (const DrupperClause *dc) const {
   assert (dc);
-  const auto &lits = dc->lits ();
-  for (int i : lits)
-    printf ("%d ", i);
+  int size = dc->size ();
+  auto it = dc->lits_begin ();
+  auto end = dc->lits_end ();
+  for (int i = 0; i < size; i++, ++it) {
+    assert (it != end);
+    printf ("%d ", *it);
+  }
   printf ("\n");
 }
 
@@ -892,6 +1253,19 @@ void Drupper::dump_clause (const vector<int> &c) const {
   printf ("\n");
 }
 
+void Drupper::dump_chain (ChainDerivation &chain) const {
+  printf ("DUMP DERIVATION START #%ld LEMMAS #%ld PIVOTS\n",
+          chain.clauses.size (), chain.pivots.size ());
+  // assert (chain.clauses.size () == chain.pivots.size () + 1);
+  // assert (chain.clauses.size ());
+  printf ("PIVOTS: ");
+  dump_clause (chain.pivots);
+  printf ("LEMMAS:\n");
+  for (auto clause : chain.clauses)
+    dump_clause (clause);
+  printf ("DUMP DERIVATION END\n");
+}
+
 void Drupper::dump_proof () const {
   printf ("DUMP PROOF START\n");
   for (int i = proof.size () - 1; i >= 0; i--) {
@@ -899,9 +1273,13 @@ void Drupper::dump_proof () const {
     printf ("(%d) (revive_at %d) %s: ", i, dc->revive_at - 1,
             dc->deleted ? "deleted" : "       ");
     if (dc->variant_type () == LITERALS) {
-      auto &lits = dc->lits ();
-      for (int l : lits)
-        printf ("%d ", l);
+      int size = dc->size ();
+      auto it = dc->lits_begin ();
+      auto end = dc->lits_end ();
+      for (int i = 0; i < size; i++, ++it) {
+        assert (it != end);
+        printf ("%d ", *it);
+      }
     } else {
       Clause *c = proof[i]->clause ();
       printf ("c: ");
@@ -910,8 +1288,10 @@ void Drupper::dump_proof () const {
       else {
         for (int lit : *c)
           printf ("%d ", lit);
-        printf ("(%lu) %s %s", int64_t (c), c->garbage ? "(garbage)" : "",
-                is_on_trail (c) ? "(reason)" : "");
+        printf ("(%lu) %s %s %s", int64_t (c),
+                c->garbage ? "(garbage)" : "",
+                is_on_trail (c) ? "(reason)" : "",
+                c->drup.core ? "(core)" : "");
       }
     }
     printf ("\n");
@@ -962,17 +1342,17 @@ static void swap_falsified_literals_right (Internal *internal,
 void Drupper::add_derived_clause (Clause *c) {
   if (isolated)
     return;
-  assert (!validating);
+  assert (!in_action);
   START (drup_inprocess);
   LOG (c, "DRUPPER derived clause notification");
   append_lemma (new DrupperClause (c));
   STOP (drup_inprocess);
 }
 
-void Drupper::add_derived_unit_clause (const int lit, bool original) {
+void Drupper::add_derived_unit_clause (int lit, bool original) {
   if (isolated)
     return;
-  assert (!validating);
+  assert (!in_action);
   START (drup_inprocess);
   LOG ({lit}, "DRUPPER derived clause notification");
   assert (lit);
@@ -985,6 +1365,7 @@ void Drupper::add_derived_unit_clause (const int lit, bool original) {
     internal->var (lit).reason = c;
     append_lemma (new DrupperClause (c));
   }
+  assign_color_range (c);
   assert (internal->var (lit).reason->literals[0] == lit);
   STOP (drup_inprocess);
 }
@@ -992,7 +1373,7 @@ void Drupper::add_derived_unit_clause (const int lit, bool original) {
 void Drupper::add_derived_empty_clause () {
   if (isolated)
     return;
-  assert (!validating);
+  assert (!in_action);
   START (drup_inprocess);
   final_conflict = internal->conflict;
   assert (final_conflict);
@@ -1004,16 +1385,15 @@ void Drupper::add_falsified_original_clause (const vector<int> &clause,
                                              bool derived) {
   if (isolated)
     return;
-  assert (!validating && !final_conflict);
+  assert (!in_action && !final_conflict);
   START (drup_inprocess);
   if (derived) {
     // Last deleted lemma is a falsified original.
     // Revive it and mark it as the conflict clause.
     assert (proof.size ());
     DrupperClause *dc = proof.back ();
-    vector<int> &lits = dc->lits ();
-    if (lits.size () == 1)
-      dc->set_variant (new_unit_clause (lits[0], false));
+    if (dc->size () == 1)
+      dc->set_variant (new_unit_clause (*dc->lits_begin (), false));
     else
       revive_clause (proof.size () - 1);
     final_conflict = dc->clause ();
@@ -1027,10 +1407,9 @@ void Drupper::add_falsified_original_clause (const vector<int> &clause,
     else {
       final_conflict = new_redundant_clause (modified);
       internal->watch_clause (final_conflict);
-      for (int lit : *final_conflict)
-        if (internal->flags (lit).eliminated ())
-          internal->reactivate (lit);
+      reactivate (final_conflict);
     }
+    assign_color_range (final_conflict);
   }
   final_conflict->drup.lemma = false;
   assert (final_conflict);
@@ -1041,11 +1420,12 @@ void Drupper::add_falsified_original_clause (const vector<int> &clause,
 void Drupper::add_failing_assumption (const vector<int> &c) {
   if (isolated)
     return;
-  assert (!validating);
+  assert (!in_action);
   if (c.size () > 1) {
     // See ../interesting_tests/assump_and_constraint
-    if (!trivially_satisfied (c))
-      append_failed (c);
+    if (trivially_satisfied (c))
+      return;
+    failing_assumptions.push_back (new_redundant_clause (c));
   } else {
     Clause *r = internal->var (c[0]).reason;
     if (r)
@@ -1056,7 +1436,7 @@ void Drupper::add_failing_assumption (const vector<int> &c) {
 void Drupper::add_updated_clause (Clause *c) {
   if (isolated)
     return;
-  assert (!validating && c);
+  assert (!in_action && c);
   START (drup_inprocess);
   LOG (c, "DRUPPER updated");
   unsigned revive_at = 0;
@@ -1069,7 +1449,8 @@ void Drupper::add_updated_clause (Clause *c) {
   vector<int> lits;
   for (int lit : *c)
     lits.push_back (lit);
-  DrupperClause *old = new DrupperClause (lits, true);
+  DrupperClause *old =
+      new DrupperClause (lits, c->drup.range.code (), true);
   old->revive_at = revive_at;
   append_lemma (old);
   STOP (drup_inprocess);
@@ -1080,7 +1461,7 @@ void Drupper::add_updated_clause (Clause *c) {
 void Drupper::delete_clause (const vector<int> &c, bool original) {
   if (isolated)
     return;
-  assert (!validating);
+  assert (!in_action);
   START (drup_inprocess);
   LOG (c, "DRUPPER clause deletion notification");
   // remove duplicates. if there is only one unique literal,
@@ -1098,7 +1479,9 @@ void Drupper::delete_clause (const vector<int> &c, bool original) {
       // is revived.
       swap_falsified_literals_right (internal, modified);
     }
-    append_lemma (new DrupperClause (modified, true));
+    assign_color_range (modified);
+    append_lemma (
+        new DrupperClause (modified, ColorRange (max_color).code (), true));
   }
   STOP (drup_inprocess);
 }
@@ -1106,7 +1489,7 @@ void Drupper::delete_clause (const vector<int> &c, bool original) {
 void Drupper::delete_clause (Clause *c) {
   if (isolated)
     return;
-  assert (!validating);
+  assert (!in_action);
   START (drup_inprocess);
   LOG (c, "DRUPPER clause deletion notification");
   append_lemma (new DrupperClause (c, true));
@@ -1116,7 +1499,7 @@ void Drupper::delete_clause (Clause *c) {
 void Drupper::deallocate_clause (Clause *c) {
   if (isolated)
     return;
-  assert (!validating);
+  assert (!in_action);
   START (drup_inprocess);
   LOG (c, "DRUPPER clause deallocation notification");
   assert (c && c->drup.idx && c->drup.idx <= proof.size ());
@@ -1136,7 +1519,7 @@ void Drupper::deallocate_clause (Clause *c) {
 void Drupper::update_moved_counterparts () {
   if (isolated)
     return;
-  assert (!validating);
+  assert (!in_action);
   START (drup_inprocess);
   for (unsigned i = 0; i < proof.size (); i++) {
     auto &dc = proof[i];
@@ -1165,18 +1548,14 @@ void Drupper::update_moved_counterparts () {
 
 /*------------------------------------------------------------------------*/
 
-void Drupper::trim (CoreIterator &it) {
+void Drupper::trim_ () {
 
   START (drup_trim);
   LOG ("DRUPPER trim");
 
   stats.trims++;
-  save_scope<bool> recover_unsat (internal->unsat);
-  assert (!validating && !isolated && !setup_internal_options ());
   check_environment ();
 
-  // Mark the conflict and its reasons as core.
-  const unsigned proof_sz = proof.size ();
   mark_conflict ();
 
   internal->flush_all_occs_and_watches ();
@@ -1184,7 +1563,11 @@ void Drupper::trim (CoreIterator &it) {
   // 'trail_sz' is used for lazy shrinking of the trail.
   unsigned trail_sz = internal->trail.size ();
 
-  lock_scope trim_scope (validating);
+  lock_scope trim_scope (in_action);
+
+  /// TODO: Can drop allocating these clauses
+  for (Clause *c : failing_assumptions)
+    mark_garbage (c), mark_core (c);
 
   // Main trimming loop
   for (int i = proof.size () - 1 - (overconstrained); i >= 0; i--) {
@@ -1196,9 +1579,6 @@ void Drupper::trim (CoreIterator &it) {
       continue;
     }
 
-    if (proof_sz == i)
-      mark_failing (proof_sz);
-
     Clause *c = dc->clause ();
     assert (c && !c->garbage);
 
@@ -1206,16 +1586,16 @@ void Drupper::trim (CoreIterator &it) {
       if (settings.core_units)
         mark_core (c);
       undo_trail_core (c, trail_sz);
-      internal->report ('m');
+      if (settings.report)
+        internal->report ('m');
     }
 
     c->drup.lemma = true;
-    stagnate_clause (i);
+    stagnate_clause (c);
 
     if (c->drup.core) {
       shrink_internal_trail (trail_sz);
-      assume_negation (c);
-      bool validated = propagate_conflict ();
+      bool validated = reverse_unit_propagation (c);
       assert (validated);
       conflict_analysis_core ();
       clean_conflict ();
@@ -1225,54 +1605,60 @@ void Drupper::trim (CoreIterator &it) {
   shrink_internal_trail (trail_sz);
   mark_core_trail_antecedents ();
 
-  internal->report ('M');
+#ifndef NDEBUG
+  if (settings.check_core) {
+    // Verify the set of core clauses is UNSAT using a fresh
+    // new solver.
+    CoreVerifier v;
+    ((const Drupper *) this)->traverse_core (v);
+    assert (v.verified ());
+  }
+#endif
+
+  if (settings.report) {
+    // Report formula has been succesfully trimmed
+    internal->report ('M');
+  }
+
+  STOP (drup_trim);
+}
+
+void Drupper::trim (CoreIterator &it) {
+
+  assert (!in_action && !isolated && !setup_internal_options ());
+  save_scope<bool> recover_unsat (internal->unsat);
+
+  trim_ ();
 
   {
     // This is a good point to handle core clauses as some might be
     // collected later.
-    //
     // Traverse core with user provided iterator and collect core
     // statistics.
     traverse_core (it);
-    if (internal->opts.drupdumpcore && file) {
-      // Dump core clauses cnf to 'file'
-      CorePrinter p (file, internal->max_var, stats.core.clauses);
-      ((const Drupper *)this)->traverse_core (p);
+
+    // Dump core clauses cnf to 'file'
+    if (internal->opts.drupdumpcore) {
+      CorePrinter printer (internal, "/home/basel.khouri/core",
+                           internal->max_var, stats.core.clauses);
+      ((const Drupper *) this)->traverse_core (printer);
     }
-#ifndef NDEBUG
-    if (settings.check_core) {
-      // Verify the set of core clauses is UNSAT using a fresh
-      // new solver.
-      CoreVerifier v;
-      ((const Drupper *)this)->traverse_core (v);
-      assert (v.verified ());
-    }
-#endif
   }
 
   restore_proof_garbage_marks ();
 
-  {
-    /// NOTE: In typical scenarios, once the formula undergoes trimming in
-    /// primary applications, the solver ceases further solving efforts.
-    // Nevertheless, in cases where the user desires to persist with
-    // solving post-trimming, it becomes necessary to restore the solver's
-    // state.
-    if (settings.unmark_core)
-        unmark_core ();
-    if (settings.reconstruct)
-      reconstruct (proof_sz);
-  }
+  if (settings.unmark_core)
+    unmark_core ();
+
+  failing_assumptions.clear ();
 
   restore_trail ();
-
-  STOP (drup_trim);
 }
 
 bool Drupper::traverse_core (CoreIterator &it) {
 
   vector<int> eclause;
-  vector<char> seen(internal->max_var + 1, 0);
+  vector<char> seen (internal->max_var + 1, 0);
 
   for (Clause *c : internal->clauses)
     if (c->drup.core) {
@@ -1285,9 +1671,9 @@ bool Drupper::traverse_core (CoreIterator &it) {
         stats.core.clauses++;
       for (const auto ilit : *c) {
         eclause.push_back (internal->externalize (ilit));
-        if (seen[abs(ilit)])
+        if (seen[abs (ilit)])
           continue;
-        seen[abs(ilit)] = 1;
+        seen[abs (ilit)] = 1;
         stats.core.variables++;
       }
       if (!it.clause (eclause))
@@ -1304,8 +1690,8 @@ bool Drupper::traverse_core (CoreIterator &it) {
       } else
         stats.core.clauses++;
       eclause.push_back (internal->externalize (ilit));
-      if (!seen[abs(ilit)]) {
-        seen[abs(ilit)] = 1;
+      if (!seen[abs (ilit)]) {
+        seen[abs (ilit)] = 1;
         stats.core.variables++;
       }
       if (!it.clause (eclause))
@@ -1313,23 +1699,23 @@ bool Drupper::traverse_core (CoreIterator &it) {
       eclause.clear ();
     }
 
-  ///TODO: Include only failed?
+  /// TODO: Include only failed?
   for (int ilit : internal->assumptions) {
-      if (!it.assumption (internal->externalize (ilit)))
-        return false;
-      if (seen[abs(ilit)])
-        continue;
-      seen[abs(ilit)] = 1;
-      stats.core.variables++;
-    }
+    if (!it.assumption (internal->externalize (ilit)))
+      return false;
+    if (seen[abs (ilit)])
+      continue;
+    seen[abs (ilit)] = 1;
+    stats.core.variables++;
+  }
 
   if (internal->unsat_constraint) {
     stats.core.clauses++;
     for (int ilit : internal->constraint) {
       eclause.push_back (internal->externalize (ilit));
-      if (seen[abs(ilit)])
+      if (seen[abs (ilit)])
         continue;
-      seen[abs(ilit)] = 1;
+      seen[abs (ilit)] = 1;
       stats.core.variables++;
     }
     if (!it.constraint (eclause))
@@ -1368,11 +1754,10 @@ bool Drupper::traverse_core (CoreIterator &it) const {
       eclause.clear ();
     }
 
-  ///TODO: Include only failed?
-  for (int ilit : internal->assumptions) {
+  for (int ilit : internal->assumptions)
+    if (internal->failed (ilit))
       if (!it.assumption (internal->externalize (ilit)))
         return false;
-  }
 
   if (internal->unsat_constraint) {
     for (int ilit : internal->constraint)
@@ -1382,11 +1767,20 @@ bool Drupper::traverse_core (CoreIterator &it) const {
     eclause.clear ();
   }
 
+  for (Clause *c : failing_assumptions) {
+    for (const auto ilit : *c)
+      eclause.push_back (internal->externalize (ilit));
+    if (!it.clause (eclause))
+      return false;
+    eclause.clear ();
+  }
+
   return true;
 }
 
 /// FIXME: experimental trivial implementation... Needs refactoring.
-void Drupper::prefer_core_watches (const int lit) {
+// sorts watches to propagate core literals first during trim.
+void Drupper::prefer_core_watches (int lit) {
   auto &ws = internal->watches (lit);
   int l = 0, h = ws.size () - 1;
   while (l < h) {
@@ -1399,6 +1793,526 @@ void Drupper::prefer_core_watches (const int lit) {
     ws[l++] = ws[h];
     ws[h] = tw;
   }
+}
+
+int Drupper::pick_new_color () {
+  assert (!in_action && !isolated);
+  return ++max_color;
+}
+
+void Drupper::assign_color_range (const vector<int> &c) const {
+  if (isolated)
+    return;
+  assert (!in_action);
+  for (int l : c)
+    internal->flags (l).range.join (max_color);
+}
+
+void Drupper::assign_color_range (Clause *c) const {
+  if (isolated)
+    return;
+  assert (!in_action);
+  assert (c);
+  c->drup.range.join (max_color);
+  for (int l : *c)
+    internal->flags (l).range.join (max_color);
+}
+
+void Drupper::assign_color_range (int lit) const {
+  if (isolated || in_action)
+    return;
+  const Clause *reason = internal->var (lit).reason;
+  assert (reason && !reason->drup.range.undef ());
+  auto &unit_color_range = internal->flags (lit).range;
+  unit_color_range = reason->drup.range;
+  for (int l : *reason)
+    unit_color_range.join (internal->flags (l).range);
+}
+
+void Drupper::init_analyzed_color_range (const Clause *c) {
+  if (!c)
+    return;
+  analyzed_range.join (c->drup.range);
+  assert (!analyzed_range.undef ());
+}
+
+void Drupper::join_analyzed_color_range (int lit) {
+  analyzed_range.join (internal->flags (lit).range);
+  assert (!analyzed_range.undef ());
+}
+
+void Drupper::join_analyzed_color_range (const Clause *c) {
+  analyzed_range.join (c->drup.range);
+  assert (!analyzed_range.undef ());
+}
+
+void Drupper::add_analyzed_color_range (Clause *c) {
+  if (!c) {
+    analyzed_range.reset ();
+    return;
+  }
+  assert (!analyzed_range.undef () && c && c->drup.range.undef ());
+  c->drup.range.join (analyzed_range);
+  analyzed_range.reset ();
+}
+
+bool Drupper::unit (Clause *c) const {
+  assert (c);
+  if (internal->val (c->literals[0]))
+    return false;
+  for (int j = 1; j < c->size; j++)
+    if (internal->val (c->literals[j]) >= 0)
+      return false;
+  return true;
+}
+
+bool Drupper::shared (Clause *c) const {
+  assert (c);
+  int max = c->drup.range.max ();
+  for (int lit : *c)
+    if (internal->flags (lit).range.max () <= max)
+      return false;
+  return true;
+}
+
+bool Drupper::color_ordered_propagate (bool core) {
+  assert (settings.ordered_propagate);
+  auto &propagated = internal->propagated;
+  const auto before = internal->propagated;
+  bool res = true;
+  for (int i = 1; res && i <= max_color; i++) {
+    propagated = before;
+    res = internal->propagate (core, i);
+  }
+  return res;
+}
+
+bool Drupper::propagate (bool core) {
+  if (settings.ordered_propagate)
+    return color_ordered_propagate (core);
+  return internal->propagate (core);
+}
+
+Clause *Drupper::recursively_colorize (Clause *anchor) {
+
+  assert (anchor);
+
+  vector<int> learnt;
+  ColorRange range;
+  int color = anchor->drup.range.max ();
+
+  ChainDerivation chain = colorize (anchor, anchor->drup.range.max (), learnt, range);
+
+  if (chain.pivots.empty ())
+    return anchor;
+
+  assert(range.max() <= color);
+
+  if (clauses_are_identical (anchor, learnt))
+    return anchor;
+
+  Clause *resolvent;
+  if (learnt.size () == 1)
+    resolvent = new_unit_clause (learnt[0], false);
+  else {
+    std::sort (learnt.begin (), learnt.end (), LiteralSort (internal));
+    resolvent = new_redundant_clause (learnt);
+    internal->watch_clause (resolvent);
+  }
+
+  resolvent->drup.range = range;
+  mark_core (resolvent);
+
+  int lit = resolvent->literals[0];
+  if (internal->val (lit) > 0)
+    internal->var (lit).reason = resolvent;
+
+  // it.chain_resolution (chain, resolvent);
+
+  return resolvent;
+}
+
+ChainDerivation Drupper::colorize (Clause *reason, int color,
+                        vector<int> &learnt, ColorRange &range) {
+
+  assert (reason && learnt.empty () && range.undef ());
+
+  vector<char> opened (internal->max_var + 1, 0);
+  auto &trail = internal->trail;
+  int i = trail.size (), open = 0, uip = 0;
+  ChainDerivation chain;
+
+  int lit = reason->literals[0];
+  if (internal->val (lit) > 0)
+    learnt.push_back (uip = lit);
+
+  for (;;) {
+    assert (reason);
+    if (reason->drup.range.max () < color) {
+      // Attempt to turn into a shared derived clause.
+      reason = recursively_colorize (reason);
+    }
+    chain.clauses.push_back (reason);
+    if (uip && chain.clauses.size () > 1)
+      chain.pivots.push_back (uip);
+    range.join (reason->drup.range);
+    assert (reason->drup.range.max () <= color);
+    for (const auto &other : *reason)
+      if (other != uip) {
+        assert (other);
+        if (opened[abs (other)])
+          continue;
+        auto &f = internal->flags (other);
+        if (f.seen)
+          continue;
+        assert (internal->val (other) < 0);
+        auto &v = internal->var (other);
+        if (v.reason && v.reason->drup.range.max () <= color) {
+          open++;
+          opened[abs (other)] = 1;
+          continue;
+        }
+        f.seen = 1;
+        learnt.push_back (other);
+      }
+
+    if (!open--)
+      break;
+
+    uip = 0;
+    while (!uip) {
+      assert (i > 0);
+      const int lit = trail[--i];
+      if (!opened[abs (lit)])
+        continue;
+      opened[abs (lit)] = 0;
+      uip = lit;
+    }
+    reason = internal->var (uip).reason;
+  }
+
+  for (int lit : learnt)
+    internal->flags (lit).seen = 0;
+
+  assert (chain.clauses.size () == chain.pivots.size () + 1);
+  return chain;
+}
+
+bool Drupper::skip_derivation (Clause *c) {
+  assert (c);
+
+  reactivate (c);
+
+  if (c->garbage) {
+    assert (c->drup.core || !is_on_trail (c));
+    if (!c->drup.core || satisfied (c))
+      return true;
+  } else {
+    if (!c->drup.core) {
+      bool locked = is_on_trail (c);
+      assert (!locked || satisfied (c) || c->drup.core);
+      if (!locked || satisfied (c))
+        stagnate_clause (c);
+    }
+    return true;
+  }
+
+  int *literals = c->literals;
+  if (internal->val (literals[0])) {
+    for (int j = 1; j < c->size; j++)
+      if (!internal->val (literals[j])) {
+        int lit = literals[0];
+        literals[0] = literals[j];
+        literals[j] = lit;
+        break;
+      }
+  }
+
+  assert (c->garbage && c->drup.core && c->drup.lemma);
+  assert (!internal->val (c->literals[0]));
+
+  return false;
+}
+
+void Drupper::label_initial (ResolutionProofIterator &it,
+                             int &trail_label_idx, ChainDerivation &chain) {
+  auto &trail = internal->trail;
+  int trail_sz = trail.size ();
+
+  while (trail_label_idx < trail_sz) {
+    const int lit = trail[trail_label_idx++];
+
+    Clause *c = internal->var (lit).reason;
+
+    if (!c) {
+      // This must be an assumption
+      assert (internal->var (lit).level > 0);
+      continue;
+    }
+
+    assert (c->literals[0] == lit);
+
+    auto &flags = internal->flags (lit);
+    auto &cr = c->drup.range;
+
+    switch (c->size) {
+    case 1:
+      flags.range = cr;
+      break;
+    case 2: {
+      int blit = -c->literals[1];
+      cr.join (internal->flags (blit).range);
+      flags.range = cr;
+      it.resolution (lit, blit, c);
+    } break;
+    default:
+      chain.clear ();
+      chain.append (c);
+      for (int j = 1; j < c->size; j++) {
+        int other = -c->literals[j];
+        cr.join (internal->flags (other).range);
+        chain.append (other, 0);
+      }
+      flags.range = cr;
+      it.chain_resolution (chain, lit);
+    }
+  }
+}
+
+void Drupper::label_final (ResolutionProofIterator &it, Clause *source) {
+  assert (source);
+  ChainDerivation chain;
+  chain.append (source);
+  for (int lit : *source)
+    chain.append (-lit, 0);
+  it.chain_resolution (chain /*, 0*/);
+}
+
+void Drupper::replay (ResolutionProofIterator &it) {
+
+  START (drup_replay);
+  LOG ("DRUPPER replay");
+
+  save_scope<bool> recover_unsat (internal->unsat);
+  lock_scope replay_scope (in_action);
+
+  vector<Clause *> optimized_proof;
+  int trail_label_idx = 0;
+  ChainDerivation chain;
+  label_initial (it, trail_label_idx, chain);
+
+  const unsigned size = proof.size ();
+  for (unsigned i = 0; i < size; i++) {
+    auto &dc = proof[i];
+    Clause *c = dc->clause ();
+
+    if (skip_derivation (c))
+      continue;
+
+    auto before = internal->propagated;
+    assume_negation (c);
+    if (color_ordered_propagate (true)) {
+      internal->propagated = before;
+      color_ordered_propagate ();
+    }
+
+    Clause *conflict = internal->conflict;
+    assert (conflict);
+
+    bool learned = true;
+    vector<int> learnt;
+    ColorRange range;
+    int color = conflict->drup.range.max ();
+    while (color <= max_color) {
+      learnt.clear (), range.reset (), chain.clear ();
+      // Attempt to apply only resolutions that are in the color partition
+      // as 'conflict'.
+      // Clauses from earlier partitions are recursively colorized by
+      // attempting to turn them into shared derived clauses. Clauses from
+      // later partitions are ignored.
+      chain = colorize (conflict, color, learnt, range);
+
+      if (!(learned = chain.pivots.size ())) {
+        color++;
+        continue;
+      }
+
+#if DNDEBUG
+      for (int lit : learnt)
+        assert (internal->val (lit) < 0);
+#endif
+
+      if (clauses_are_identical (c, learnt)) {
+        c->drup.range = range;
+        int sz = c->size;
+        std::sort (learnt.begin (), learnt.end (), LiteralSort (internal));
+        for (int i = 0; i < sz; i++)
+          c->literals[i] = learnt[i];
+        mark_active (c);
+        it.chain_resolution (chain, c);
+        if (c->size > 1)
+          internal->watch_clause (c);
+        if (settings.optimize_proof) {
+          assert (!c->garbage);
+          optimized_proof.push_back (c);
+        }
+        break;
+      }
+
+      color = max_color + 1;
+      for (int lit : learnt)
+        /// FIXME: Does not seem sound to me according to the paper:
+        // T = {q in c | reason(q) == nil}
+        // if T is empty, then break
+        // k <- min{k(q) | q in T}
+        // But the check got_value_by_propagation is not the same with
+        // reason (q)
+        if (got_value_by_propagation (lit)) {
+          Clause *r = internal->var (lit).reason;
+          assert (r);
+          color = min (int (r->drup.range.max ()), color);
+        }
+
+      if (learnt.size () == 1)
+        conflict = new_unit_clause (learnt[0], false);
+      else {
+        std::sort (learnt.begin (), learnt.end (), LiteralSort (internal));
+        conflict = new_redundant_clause (learnt);
+        internal->watch_clause (conflict);
+      }
+      conflict->drup.range = range;
+      mark_core (conflict);
+      if (settings.optimize_proof) {
+        assert (!conflict->garbage);
+        optimized_proof.push_back (conflict);
+      }
+      c->drup.core = false;
+
+      it.chain_resolution (chain, conflict);
+
+      if (color > max_color) {
+        // Set drup.idx to 0
+        c = conflict;
+        dc->set_variant (conflict);
+      }
+    }
+
+    assert (dc && c && dc->clause () == c);
+    clean_conflict ();
+
+    if (!learned) {
+      assert (c->garbage && c->drup.core);
+      c->drup.core = false;
+      continue;
+    }
+
+    mark_active (c);
+
+    if (c->size == 1 || internal->val (c->literals[1]) < 0) {
+      lock_scope isolate (isolated);
+      assert (unit (c));
+      internal->search_assign (c->literals[0], c);
+      bool conflicting = !propagate (true);
+      label_initial (it, trail_label_idx, chain);
+      if (conflicting) {
+        assert (internal->conflict);
+        label_final (it, internal->conflict);
+        break;
+      }
+    }
+  }
+
+  for (Clause *c : failing_assumptions) {
+    assert (c->size > 1);
+    label_final (it, c);
+  }
+
+  if (failed_constraint) {
+    assert (failed_constraint->size > 1);
+    label_final (it, failed_constraint);
+  } // TODO: else if (unsat_constraint && constraint.size () == 1)
+    // label_final (it, reason(constraint[0]));
+
+  if (settings.optimize_proof)
+    optimize_proof (optimized_proof);
+
+  STOP (drup_replay);
+}
+
+void Drupper::optimize_proof (vector<Clause *> &optimized) {
+
+  while (proof.size ()) {
+    DrupperClause *dc = proof.back ();
+    Clause *c = dc->clause ();
+    assert (c);
+    c->drup.idx = 0;
+    proof.pop_back ();
+    delete dc;
+  }
+
+  assert (proof.empty ());
+
+  for (auto &c : optimized) {
+    assert (c /*&& !c->garbage && c->drup.core */&& !c->drup.idx);
+    append_lemma (new DrupperClause (c));
+  }
+
+  assert (proof.size () == optimized.size ());
+
+  stats.derived = proof.size ();
+  stats.deleted = 0;
+  // stats.optimized = proof.size ();
+}
+
+void Drupper::interpolate (ResolutionProofIterator &it) {
+
+  START (drup_interpolate);
+  LOG ("DRUPPER interpolate");
+
+  trim_ ();
+
+  // Dump core clauses cnf to 'file'
+  if (internal->opts.drupdumpcore) {
+    CorePrinter printer (internal, "/home/basel.khouri/core",
+                         internal->max_var, stats.core.clauses);
+    traverse_core (printer);
+  }
+
+  clean_conflict ();
+  restore_trail (true /* initial data base only */);
+  assert (!internal->conflict); // Unless overconstrained?
+
+  {
+    lock_scope ordered_propagation (settings.ordered_propagate);
+    replay (it);
+  }
+
+  lock_scope isolate (isolated);
+  internal->delete_garbage_clauses ();
+  delete_garbage_unit_clauses ();
+
+  if (settings.unmark_core)
+    unmark_core ();
+
+  if (failed_constraint) {
+    assert (!failed_constraint->drup.idx);
+    mark_garbage (failed_constraint);
+  }
+
+  if (overconstrained) {
+    assert (final_conflict && !final_conflict->drup.idx);
+    mark_garbage (final_conflict);
+  }
+
+  final_conflict = failed_constraint = 0;
+  failing_assumptions.clear ();
+
+  STOP (drup_interpolate);
+}
+
+void Drupper::trace_check (const char *path) {
+  TraceCheck it (internal, path);
+  interpolate (it);
 }
 
 } // namespace CaDiCaL

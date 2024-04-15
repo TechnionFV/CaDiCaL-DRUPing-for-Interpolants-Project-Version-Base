@@ -228,9 +228,6 @@ int Internal::cdcl_loop_with_inprocessing () {
 
   STOP (search);
 
-  if (drupper && res == 20)
-    drupper->trace_check ("/home/basel.khouri/tcpf");
-
   return res;
 }
 

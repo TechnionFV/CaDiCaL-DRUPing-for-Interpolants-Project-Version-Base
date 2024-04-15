@@ -281,7 +281,6 @@ class Drupper {
       core_units = false;
       check_core = true;
       unmark_core = true;
-      reconstruct = false;
       report = false;
       optimize_proof = true;
       ordered_propagate = false;

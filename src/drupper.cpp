@@ -440,8 +440,6 @@ void Drupper::set (const char *setting, bool val) {
     settings.core_units = val;
   else if (!strcmp (setting, "unmark_core"))
     settings.unmark_core = val;
-  else if (!strcmp (setting, "reconstruct"))
-    settings.reconstruct = val;
   else if (!strcmp (setting, "check_core"))
     settings.check_core = val;
   else
@@ -1105,58 +1103,6 @@ void Drupper::restore_proof_garbage_marks () {
   }
 
   final_conflict = failed_constraint = 0;
-}
-
-void Drupper::reconstruct (const unsigned proof_sz) {
-  START (drup_reconstruct);
-  lock_scope isolate (isolated);
-
-  if (proof.size () > proof_sz) {
-    int pop = proof.size () - proof_sz;
-    while (pop--) {
-      DrupperClause *dc = proof.back ();
-      Clause *c = dc->clause ();
-      assert (c->garbage);
-      c->drup.idx = 0;
-      if (dc->deleted)
-        stats.deleted--;
-      else
-        stats.derived--;
-      proof.pop_back ();
-      delete dc;
-    };
-  }
-
-  /// FIXME: Garbage clauses will be deallocated from memory only once all
-  /// variant wrappers are converted to integer literals.
-  // This implies that, during this process, each garbage clause will retain
-  // an object reference in memory alongside the literals, potentially
-  // causing a significant memory peak.
-  /// NOTE: Must not maintain garbage references anymore as they will be
-  /// reallocated in the future.
-  if (!internal->protected_reasons)
-    internal->protect_reasons ();
-  internal->flush_all_occs_and_watches ();
-  for (int i = proof.size () - 1; i >= 0; i--) {
-    DrupperClause *dc = proof[i];
-    if (dc->deleted) {
-      Clause *c = dc->clause ();
-      assert (c && c->garbage);
-      assert (c->size > 1 ||
-              i == proof.size () - 1); // can be falsified original conflict
-      // if (c->reason) {
-      //   assert (c->size == 1 || c->drup.idx == i+1);
-      //   continue;
-      // }
-      c->drup.idx = 0;
-      dc->flip_variant ();
-      if (dc->revive_at)
-        proof[dc->revive_at - 1]->set_variant (0);
-    }
-  }
-  internal->unprotect_reasons ();
-
-  STOP (drup_reconstruct);
 }
 
 /*------------------------------------------------------------------------*/

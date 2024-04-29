@@ -755,6 +755,17 @@ void Solver::trim (CoreIterator &it) {
   external->trim (it);
 }
 
+void Solver::pick_new_color (int c) {
+  TRACE ("pick_new_color", c);
+  REQUIRE_VALID_STATE ();
+  transition_to_unknown_state ();
+  REQUIRE (internal->opts.drup == 1,
+    "drup option must be already set");
+  assert (external->internal->drupper);
+  external->internal->drupper->pick_new_color (c);
+  LOG_API_CALL_END ("add", lit);
+}
+
 /*------------------------------------------------------------------------*/
 
 void Solver::terminate () {

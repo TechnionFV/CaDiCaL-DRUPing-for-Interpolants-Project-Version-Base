@@ -1741,9 +1741,13 @@ void Drupper::prefer_core_watches (int lit) {
   }
 }
 
-int Drupper::pick_new_color () {
+void Drupper::pick_new_color (int c) {
   assert (!in_action && !isolated);
-  return ++max_color;
+  assert (!c || c > max_color);
+  if (!c)
+    max_color++;
+  else
+    max_color = c;
 }
 
 void Drupper::assign_color_range (const vector<int> &c) const {

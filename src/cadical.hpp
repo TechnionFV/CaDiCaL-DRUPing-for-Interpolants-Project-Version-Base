@@ -355,6 +355,12 @@ public:
   //
   void trim (CoreIterator &);
 
+  // DRUP increase partiton
+  //
+  //   require (VALID)
+  //
+  void pick_new_color (int);
+
   //------------------------------------------------------------------------
   // This function determines a good splitting literal.  The result can be
   // zero if the formula is proven to be satisfiable or unsatisfiable.  This

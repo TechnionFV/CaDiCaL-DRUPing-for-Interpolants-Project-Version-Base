@@ -311,7 +311,7 @@ public:
   void trim (CoreIterator &);
   void prefer_core_watches (int);
 
-  int pick_new_color ();
+  void pick_new_color (int c = 0);
 
   void assign_color_range (Clause *) const;
   void assign_color_range (int) const;
